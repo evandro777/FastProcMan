@@ -1,0 +1,63 @@
+app-id: io.github.evandro777.FastProcMan
+runtime: org.freedesktop.Platform
+# Bump together with: the container image tag and the rust-stable lines in .github/workflows/flatpak.yml, and the
+# header of flatpak/build.sh.
+runtime-version: "25.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: fastprocman
+
+# Wayland when available, otherwise X11. Keep this list as small as the app allows: no filesystem, network or GPU
+# access (software rendering). An app that needs a global hotkey, clipboard watching or synthetic keys is X11-only:
+# use `--socket=x11` instead of the two socket lines. A tray needs `--talk-name=org.kde.StatusNotifierWatcher`.
+#
+# EXCEPTION, on purpose: a process manager inside the sandbox sees only its own processes, so the app asks the
+# Flatpak portal to run itself on the host (src/host.rs). That is `--talk-name=org.freedesktop.Flatpak`, which gives
+# the app the same reach as a normal program: it is NOT sandboxed. The README says so. Flathub would not accept it.
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --talk-name=org.freedesktop.Flatpak
+
+modules:
+  - name: fastprocman
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/fastprocman/cargo
+    build-commands:
+      - cargo build --release --offline --locked
+      - install -Dm755 target/release/fastprocman ${FLATPAK_DEST}/bin/fastprocman
+      - install -Dm644 packaging/io.github.evandro777.FastProcMan.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 packaging/io.github.evandro777.FastProcMan.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - install -Dm644 packaging/io.github.evandro777.FastProcMan.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
+      # A development build (app-id ...FastProcMan.Devel) must not collide with an installed release.
+      - sed -i "s/io\\.github\\.evandro777\\.FastProcMan/${FLATPAK_ID}/g" ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - case "${FLATPAK_ID}" in *.Devel) sed -i "s/^Name=FastProcMan$/Name=FastProcMan (Devel)/" ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop ;; esac
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - target
+          - dev
+          - .claude
+          - flatpak/build-dir
+          - flatpak/devel
+          - flatpak/.flatpak-builder
+          - flatpak/repo
+          - flatpak/vendor
+          - flatpak/io.github.evandro777.FastProcMan.Devel.yml
+          - flatpak/fastprocman.flatpak
+          - appimage/AppDir
+          - squashfs-root
+      # Crates are vendored by flatpak/build.sh, because the build runs without network access.
+      - type: dir
+        path: vendor
+        dest: vendor
+      - type: file
+        path: cargo-config.toml
+        dest: .cargo
+        dest-filename: config.toml

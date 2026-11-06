@@ -1,0 +1,16 @@
+[package]
+name = "fastprocman"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Light and fast Linux app built in Rust with Slint."
+
+[dependencies]
+fastprocman-core = { path = "../core" }
+slint = { version = "1.18", default-features = false, features = ["std", "backend-winit", "renderer-software", "software-renderer-systemfonts", "compat-1-2", "unstable-winit-030"] }
+
+[build-dependencies]
+slint-build = "1.18"

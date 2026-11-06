@@ -1,0 +1,170 @@
+//! User settings in one TOML file under the XDG data dir (`~/.local/share/FastProcMan`).
+use std::{fs, path::PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+/// Folder name under the XDG data dir.
+pub const APP_DIR: &str = "FastProcMan";
+pub const MIN_SIZE: (u32, u32) = (640, 400);
+/// Upper bound for a hand-edited size; a huge value would fail at window creation.
+pub const MAX_SIZE: u32 = 8192;
+/// Allowed refresh intervals in seconds, in the order the UI lists them.
+pub const INTERVALS: [u32; 3] = [1, 2, 5];
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(default)] // older files keep loading when a field is added
+pub struct Settings {
+    /// "" follows the system locale; otherwise a gettext code such as "pt_BR".
+    pub language: String,
+    pub width: u32,
+    pub height: u32,
+    /// Refresh interval in seconds: 1, 2 or 5 (anything else falls back to 1).
+    pub interval_secs: u32,
+    /// Per-process CPU % as a share of the whole machine (100 = all cores) instead of one core (top style).
+    pub cpu_whole_machine: bool,
+    /// Show processes as a tree (parent → children) instead of a flat list.
+    pub tree: bool,
+    /// In tree mode, group the processes by application (like Mission Center) instead of one plain forest.
+    pub group_apps: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            language: String::new(),
+            width: 860,
+            height: 560,
+            interval_secs: 1,
+            cpu_whole_machine: false,
+            tree: false,
+            group_apps: true,
+        }
+    }
+}
+
+fn parse(text: &str) -> Result<Settings, toml::de::Error> {
+    toml::from_str(text)
+}
+
+fn data_dir() -> PathBuf {
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join(APP_DIR)
+}
+
+fn path() -> PathBuf {
+    data_dir().join("settings.toml")
+}
+
+impl Settings {
+    pub fn load() -> Self {
+        let mut s = match fs::read_to_string(path()) {
+            Ok(text) => parse(&text).unwrap_or_else(|e| {
+                // The file is hand-edited; the next save() must not overwrite what the user wrote.
+                let bad = path().with_extension("toml.bad");
+                eprintln!(
+                    "settings.toml is invalid ({e}); kept as {}, using defaults",
+                    bad.display()
+                );
+                let _ = fs::rename(path(), bad);
+                Settings::default()
+            }),
+            Err(_) => Settings::default(),
+        };
+        s.normalize();
+        s
+    }
+
+    fn normalize(&mut self) {
+        self.width = self.width.clamp(MIN_SIZE.0, MAX_SIZE);
+        self.height = self.height.clamp(MIN_SIZE.1, MAX_SIZE);
+        if !INTERVALS.contains(&self.interval_secs) {
+            self.interval_secs = 1;
+        }
+    }
+
+    /// Atomic write so a crash can never leave a half-written file. Failures are reported on stderr;
+    /// the app keeps working with the in-memory settings.
+    pub fn save(&self) {
+        if let Err(e) = self.try_save() {
+            eprintln!("cannot save settings to {}: {e}", path().display());
+        }
+    }
+
+    fn try_save(&self) -> std::io::Result<()> {
+        let dir = data_dir();
+        fs::create_dir_all(&dir)?;
+        let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
+        let tmp = dir.join("settings.toml.tmp");
+        fs::write(&tmp, text)?;
+        fs::rename(&tmp, path())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_files_still_load() {
+        let parsed: Settings = toml::from_str("width = 700").unwrap();
+        assert_eq!((parsed.width, parsed.language.as_str()), (700, ""));
+    }
+
+    #[test]
+    fn interval_defaults_and_rejects_odd_values() {
+        let mut s: Settings = toml::from_str("width = 700").unwrap();
+        assert_eq!(s.interval_secs, 1);
+        s.interval_secs = 3;
+        s.normalize();
+        assert_eq!(s.interval_secs, 1);
+        s.interval_secs = 5;
+        s.normalize();
+        assert_eq!(s.interval_secs, 5);
+    }
+
+    #[test]
+    fn a_saved_interval_is_kept_when_the_default_changes() {
+        let s: Settings = toml::from_str("interval_secs = 2").unwrap();
+        assert_eq!(s.interval_secs, 2);
+    }
+
+    #[test]
+    fn cpu_scope_defaults_to_per_core_and_loads_when_set() {
+        let old: Settings = toml::from_str("width = 700").unwrap();
+        assert!(!old.cpu_whole_machine);
+        let on: Settings = toml::from_str("cpu_whole_machine = true").unwrap();
+        assert!(on.cpu_whole_machine);
+    }
+
+    #[test]
+    fn tree_defaults_to_flat_and_loads_when_set() {
+        let old: Settings = toml::from_str("width = 700").unwrap();
+        assert!(!old.tree);
+        let on: Settings = toml::from_str("tree = true").unwrap();
+        assert!(on.tree);
+    }
+
+    #[test]
+    fn group_apps_defaults_to_on_and_loads_when_set() {
+        let old: Settings = toml::from_str("width = 700").unwrap();
+        assert!(old.group_apps);
+        let off: Settings = toml::from_str("group_apps = false").unwrap();
+        assert!(!off.group_apps);
+    }
+
+    #[test]
+    fn invalid_file_is_an_error_not_defaults() {
+        assert!(parse("width = \"wide\"").is_err());
+    }
+
+    #[test]
+    fn window_size_is_clamped_both_ways() {
+        let mut s: Settings = toml::from_str("width = 4000000000\nheight = 1").unwrap();
+        s.normalize();
+        assert_eq!((s.width, s.height), (MAX_SIZE, MIN_SIZE.1));
+    }
+}

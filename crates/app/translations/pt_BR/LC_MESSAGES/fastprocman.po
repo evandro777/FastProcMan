@@ -1,0 +1,680 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: pt_BR\n"
+
+msgctxt "Tr"
+msgid "Version {}"
+msgstr "Versão {}"
+
+msgctxt "Tr"
+msgid "1 process"
+msgstr "1 processo"
+
+msgctxt "Tr"
+msgid "{} processes"
+msgstr "{} processos"
+
+msgctxt "Tr"
+msgid "{} ({})"
+msgstr "{} ({})"
+
+msgctxt "Tr"
+msgid "Processes"
+msgstr "Processos"
+
+msgctxt "Tr"
+msgid "Deleted program"
+msgstr "Programa apagado"
+
+msgctxt "Tr"
+msgid "In a temp folder"
+msgstr "Em pasta temporária"
+
+msgctxt "Tr"
+msgid "Name mismatch"
+msgstr "Nome diferente"
+
+msgctxt "Tr"
+msgid "The program file was deleted or replaced after it started. Normal right after an update; otherwise worth checking."
+msgstr "O arquivo do programa foi apagado ou substituído depois que ele iniciou. Normal logo após uma atualização; caso contrário, vale conferir."
+
+msgctxt "Tr"
+msgid "Runs from a temporary folder, where downloaded or dropped programs often live."
+msgstr "Executa a partir de uma pasta temporária, onde costumam ficar programas baixados ou deixados por outro programa."
+
+msgctxt "Tr"
+msgid "Its name differs from its program file. Common for browsers and Electron apps."
+msgstr "O nome é diferente do arquivo do programa. Comum em navegadores e apps Electron."
+
+msgctxt "Tr"
+msgid "{} B"
+msgstr "{} B"
+
+msgctxt "Tr"
+msgid "{} KB"
+msgstr "{} KB"
+
+msgctxt "Tr"
+msgid "{} MB"
+msgstr "{} MB"
+
+msgctxt "Tr"
+msgid "{} GB"
+msgstr "{} GB"
+
+msgctxt "Tr"
+msgid "{}/s"
+msgstr "{}/s"
+
+msgctxt "Tr"
+msgid "{} of {} ({}%)"
+msgstr "{} de {} ({}%)"
+
+msgctxt "Tr"
+msgid "{}%"
+msgstr "{}%"
+
+msgctxt "Tr"
+msgid "Down {}  Up {}"
+msgstr "Recebido {}  Enviado {}"
+
+msgctxt "Tr"
+msgid "{}: {}"
+msgstr "{}: {}"
+
+msgctxt "Tr"
+msgid "Peak {}"
+msgstr "Pico {}"
+
+msgctxt "Tr"
+msgid "Read {}  Write {}"
+msgstr "Leitura {}  Escrita {}"
+
+msgctxt "Tr"
+msgid "⚠ {} of memory left: opening another big app may freeze the system"
+msgstr "⚠ Restam {} de memória: abrir outro programa grande pode travar o sistema"
+
+msgctxt "Tr"
+msgid "⚠ Low memory: {} left"
+msgstr "⚠ Pouca memória: restam {}"
+
+msgctxt "Tr"
+msgid "⚠ Disk is busy"
+msgstr "⚠ Disco ocupado"
+
+msgctxt "Tr"
+msgid "⚠ CPU overloaded"
+msgstr "⚠ CPU sobrecarregada"
+
+msgctxt "Tr"
+msgid "Asked {} to quit"
+msgstr "Pedido para fechar {}"
+
+msgctxt "Tr"
+msgid "Forced {} to quit"
+msgstr "{} encerrado à força"
+
+msgctxt "Tr"
+msgid "The process has already exited"
+msgstr "O processo já terminou"
+
+msgctxt "Tr"
+msgid "Cancelled"
+msgstr "Cancelado"
+
+msgctxt "Tr"
+msgid "PID 1 and FastProcMan itself cannot be quit"
+msgstr "O PID 1 e o próprio FastProcMan não podem ser fechados"
+
+msgctxt "Tr"
+msgid "Failed: {}"
+msgstr "Falhou: {}"
+
+msgctxt "ProcessesPage"
+msgid "Name"
+msgstr "Nome"
+
+msgctxt "ProcessesPage"
+msgid "PID"
+msgstr "PID"
+
+msgctxt "ProcessesPage"
+msgid "User"
+msgstr "Usuário"
+
+msgctxt "ProcessesPage"
+msgid "CPU %"
+msgstr "CPU %"
+
+msgctxt "ProcessesPage"
+msgid "Memory"
+msgstr "Memória"
+
+msgctxt "ProcessesPage"
+msgid "Warning"
+msgstr "Alerta"
+
+msgctxt "ProcessesPage"
+msgid "Filter by name or PID (Ctrl+F)"
+msgstr "Filtrar por nome ou PID (Ctrl+F)"
+
+msgctxt "ProcessesPage"
+msgid "Suspicious only"
+msgstr "Somente suspeitos"
+
+msgctxt "Main"
+msgid "Tree"
+msgstr "Árvore"
+
+msgctxt "Main"
+msgid "Expand all"
+msgstr "Expandir tudo"
+
+msgctxt "Main"
+msgid "Collapse all"
+msgstr "Recolher tudo"
+
+msgctxt "Main"
+msgid "Quit…"
+msgstr "Fechar…"
+
+msgctxt "ProcessesPage"
+msgid "Quit…"
+msgstr "Fechar…"
+
+msgctxt "ProcessesPage"
+msgid "Force quit…"
+msgstr "Forçar encerramento…"
+
+msgctxt "ProcessesPage"
+msgid "Suspend"
+msgstr "Suspender"
+
+msgctxt "ProcessesPage"
+msgid "Resume"
+msgstr "Continuar"
+
+msgctxt "ProcessesPage"
+msgid "Priority"
+msgstr "Prioridade"
+
+msgctxt "ProcessesPage"
+msgid "Very high (-10)"
+msgstr "Muito alta (-10)"
+
+msgctxt "ProcessesPage"
+msgid "High (-5)"
+msgstr "Alta (-5)"
+
+msgctxt "ProcessesPage"
+msgid "Normal (0)"
+msgstr "Normal (0)"
+
+msgctxt "ProcessesPage"
+msgid "Low (5)"
+msgstr "Baixa (5)"
+
+msgctxt "ProcessesPage"
+msgid "Very low (19)"
+msgstr "Muito baixa (19)"
+
+msgctxt "ProcessesPage"
+msgid "Properties"
+msgstr "Propriedades"
+
+msgctxt "ProcessesPage"
+msgid "No matching processes"
+msgstr "Nenhum processo encontrado"
+
+msgctxt "ProcessesPage"
+msgid "No processes"
+msgstr "Nenhum processo"
+
+msgctxt "ProcessesPage"
+msgid "Press Esc to clear the filter"
+msgstr "Pressione Esc para limpar o filtro"
+
+msgctxt "Confirm"
+msgid "Quit {}?"
+msgstr "Fechar {}?"
+
+msgctxt "Confirm"
+msgid "Force quit {}?"
+msgstr "Forçar o encerramento de {}?"
+
+msgctxt "Confirm"
+msgid "The program is asked to quit. It may ask to save your work first."
+msgstr "O programa é solicitado a fechar. Ele pode pedir para salvar o trabalho antes."
+
+msgctxt "Confirm"
+msgid "The program is stopped immediately and cannot save anything. Use this only if Quit does not work."
+msgstr "O programa é interrompido na hora e não consegue salvar nada. Use só se Fechar não funcionar."
+
+msgctxt "Confirm"
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgctxt "Confirm"
+msgid "Quit"
+msgstr "Fechar"
+
+msgctxt "Confirm"
+msgid "Force quit"
+msgstr "Forçar encerramento"
+
+msgctxt "Properties"
+msgid "Properties"
+msgstr "Propriedades"
+
+msgctxt "Properties"
+msgid "Name"
+msgstr "Nome"
+
+msgctxt "Properties"
+msgid "PID"
+msgstr "PID"
+
+msgctxt "Properties"
+msgid "Parent PID"
+msgstr "PID do pai"
+
+msgctxt "Properties"
+msgid "User"
+msgstr "Usuário"
+
+msgctxt "Properties"
+msgid "State"
+msgstr "Estado"
+
+msgctxt "Properties"
+msgid "Threads"
+msgstr "Threads"
+
+msgctxt "Properties"
+msgid "Priority (nice)"
+msgstr "Prioridade (nice)"
+
+msgctxt "Properties"
+msgid "Running for"
+msgstr "Em execução há"
+
+msgctxt "Properties"
+msgid "CPU"
+msgstr "CPU"
+
+msgctxt "Properties"
+msgid "Memory"
+msgstr "Memória"
+
+msgctxt "Properties"
+msgid "Resident memory"
+msgstr "Memória residente"
+
+msgctxt "Properties"
+msgid "Shared memory"
+msgstr "Memória compartilhada"
+
+msgctxt "Properties"
+msgid "Virtual memory"
+msgstr "Memória virtual"
+
+msgctxt "Properties"
+msgid "Memory is resident minus shared: what the process uses by itself. Virtual includes reserved space that is not in RAM."
+msgstr "Memória é a residente menos a compartilhada: o que o processo usa sozinho. A virtual inclui espaço reservado que não está na RAM."
+
+msgctxt "Properties"
+msgid "Disk since start"
+msgstr "Disco desde o início"
+
+msgctxt "Properties"
+msgid "Warning"
+msgstr "Alerta"
+
+msgctxt "Properties"
+msgid "Program"
+msgstr "Programa"
+
+msgctxt "Properties"
+msgid "Command line"
+msgstr "Linha de comando"
+
+msgctxt "Properties"
+msgid "Working folder"
+msgstr "Pasta de trabalho"
+
+msgctxt "Properties"
+msgid "Close"
+msgstr "Fechar"
+
+msgctxt "Tr"
+msgid "Suspended {}"
+msgstr "{} suspenso"
+
+msgctxt "Tr"
+msgid "Resumed {}"
+msgstr "{} continuado"
+
+msgctxt "Tr"
+msgid "Set the priority of {} to {}"
+msgstr "Prioridade de {} definida como {}"
+
+msgctxt "Tr"
+msgid "Cannot reach the host: only this sandbox's processes are shown"
+msgstr "Sem acesso ao sistema: só os processos deste sandbox aparecem"
+
+msgctxt "Tr"
+msgid "Unavailable"
+msgstr "Indisponível"
+
+msgctxt "Tr"
+msgid "Running"
+msgstr "Em execução"
+
+msgctxt "Tr"
+msgid "Sleeping"
+msgstr "Dormindo"
+
+msgctxt "Tr"
+msgid "Waiting for disk"
+msgstr "Esperando o disco"
+
+msgctxt "Tr"
+msgid "Stopped"
+msgstr "Parado"
+
+msgctxt "Tr"
+msgid "Zombie"
+msgstr "Zumbi"
+
+msgctxt "Tr"
+msgid "Exited"
+msgstr "Encerrado"
+
+msgctxt "Tr"
+msgid "{} s"
+msgstr "{} s"
+
+msgctxt "Tr"
+msgid "{} min {} s"
+msgstr "{} min {} s"
+
+msgctxt "Tr"
+msgid "{} h {} min"
+msgstr "{} h {} min"
+
+msgctxt "Tr"
+msgid "{} d {} h"
+msgstr "{} d {} h"
+
+msgctxt "GraphCard"
+msgid "Collecting…"
+msgstr "Coletando…"
+
+msgctxt "Tr"
+msgid "CPU"
+msgstr "CPU"
+
+msgctxt "Tr"
+msgid "Memory"
+msgstr "Memória"
+
+msgctxt "Tr"
+msgid "Network"
+msgstr "Rede"
+
+msgctxt "Tr"
+msgid "Disk {}"
+msgstr "Disco {}"
+
+msgctxt "Tr"
+msgid "Download"
+msgstr "Recebido"
+
+msgctxt "Tr"
+msgid "Upload"
+msgstr "Enviado"
+
+msgctxt "Tr"
+msgid "Read"
+msgstr "Leitura"
+
+msgctxt "Tr"
+msgid "Write"
+msgstr "Escrita"
+
+msgctxt "Tr"
+msgid "Swap"
+msgstr "Swap"
+
+msgctxt "Tr"
+msgid "Processing"
+msgstr "Processamento"
+
+msgctxt "Tr"
+msgid "Video encode"
+msgstr "Codificação de vídeo"
+
+msgctxt "Tr"
+msgid "Video decode"
+msgstr "Decodificação de vídeo"
+
+msgctxt "Main"
+msgid "Processes"
+msgstr "Processos"
+
+msgctxt "Main"
+msgid "Graphs"
+msgstr "Gráficos"
+
+msgctxt "Main"
+msgid "Refresh"
+msgstr "Atualizar"
+
+msgctxt "About"
+msgid "A light and fast process manager built with Rust and Slint."
+msgstr "Um gerenciador de processos leve e rápido feito com Rust e Slint."
+
+msgctxt "About"
+msgid "Website"
+msgstr "Site"
+
+msgctxt "About"
+msgid "Close"
+msgstr "Fechar"
+
+msgctxt "ProcessesPage"
+msgid "Settings"
+msgstr "Configurações"
+
+msgctxt "Settings"
+msgid "Settings"
+msgstr "Configurações"
+
+msgctxt "Settings"
+msgid "About"
+msgstr "Sobre"
+
+msgctxt "Settings"
+msgid "CPU % of the whole machine"
+msgstr "CPU % da máquina inteira"
+
+msgctxt "Settings"
+msgid "Group the tree by application"
+msgstr "Agrupar a árvore por aplicativo"
+
+msgctxt "Settings"
+msgid "Tree mode only. On: applications first, the rest under Processes. Off: one plain tree."
+msgstr "Só no modo árvore. Ligado: aplicativos primeiro, o resto em Processos. Desligado: uma árvore simples."
+
+msgctxt "Settings"
+msgid "Off: 100% is one core, so a busy process can pass 100%. On: 100% is all cores together."
+msgstr "Desligado: 100% é um núcleo, então um processo ocupado pode passar de 100%. Ligado: 100% são todos os núcleos juntos."
+
+msgctxt "Settings"
+msgid "Close"
+msgstr "Fechar"
+
+msgctxt "Settings"
+msgid "Language"
+msgstr "Idioma"
+
+msgctxt "Settings"
+msgid "System"
+msgstr "Sistema"
+
+msgctxt "Tr"
+msgid "Failed"
+msgstr "Falhou"
+
+msgctxt "Tr"
+msgid "Enabled"
+msgstr "Ativado"
+
+msgctxt "Tr"
+msgid "Disabled"
+msgstr "Desativado"
+
+msgctxt "Tr"
+msgid "Static"
+msgstr "Estático"
+
+msgctxt "Tr"
+msgid "Masked"
+msgstr "Mascarado"
+
+msgctxt "Tr"
+msgid "1 service"
+msgstr "1 serviço"
+
+msgctxt "Tr"
+msgid "{} services"
+msgstr "{} serviços"
+
+msgctxt "Tr"
+msgid "Started {}"
+msgstr "{} iniciado"
+
+msgctxt "Tr"
+msgid "Stopped {}"
+msgstr "{} parado"
+
+msgctxt "Tr"
+msgid "Restarted {}"
+msgstr "{} reiniciado"
+
+msgctxt "Main"
+msgid "Services"
+msgstr "Serviços"
+
+msgctxt "Main"
+msgid "Start"
+msgstr "Iniciar"
+
+msgctxt "Main"
+msgid "Stop"
+msgstr "Parar"
+
+msgctxt "Main"
+msgid "Restart"
+msgstr "Reiniciar"
+
+msgctxt "ServicesPage"
+msgid "Name"
+msgstr "Nome"
+
+msgctxt "ServicesPage"
+msgid "PID"
+msgstr "PID"
+
+msgctxt "ServicesPage"
+msgid "User"
+msgstr "Usuário"
+
+msgctxt "ServicesPage"
+msgid "CPU %"
+msgstr "CPU %"
+
+msgctxt "ServicesPage"
+msgid "Memory"
+msgstr "Memória"
+
+msgctxt "ServicesPage"
+msgid "Status"
+msgstr "Estado"
+
+msgctxt "ServicesPage"
+msgid "Startup"
+msgstr "Início"
+
+msgctxt "ServicesPage"
+msgid "Filter by service name (Ctrl+F)"
+msgstr "Filtrar por nome do serviço (Ctrl+F)"
+
+msgctxt "ServicesPage"
+msgid "All statuses"
+msgstr "Todos os estados"
+
+msgctxt "ServicesPage"
+msgid "All startups"
+msgstr "Todos os inícios"
+
+msgctxt "ServicesPage"
+msgid "Static"
+msgstr "Estáticos"
+
+msgctxt "ServicesPage"
+msgid "Masked"
+msgstr "Mascarados"
+
+msgctxt "ServicesPage"
+msgid "Running"
+msgstr "Em execução"
+
+msgctxt "ServicesPage"
+msgid "Failed"
+msgstr "Com falha"
+
+msgctxt "ServicesPage"
+msgid "Stopped"
+msgstr "Parados"
+
+msgctxt "ServicesPage"
+msgid "Enabled"
+msgstr "Ativados"
+
+msgctxt "ServicesPage"
+msgid "Disabled"
+msgstr "Desativados"
+
+msgctxt "ServicesPage"
+msgid "No matching services"
+msgstr "Nenhum serviço encontrado"
+
+msgctxt "ServicesPage"
+msgid "Press Esc to clear the filter"
+msgstr "Pressione Esc para limpar o filtro"
+
+msgctxt "Confirm"
+msgid "Stop {}?"
+msgstr "Parar {}?"
+
+msgctxt "Confirm"
+msgid "Restart {}?"
+msgstr "Reiniciar {}?"
+
+msgctxt "Confirm"
+msgid "The service and all its processes are stopped."
+msgstr "O serviço e todos os seus processos são parados."
+
+msgctxt "Confirm"
+msgid "The service is stopped and started again."
+msgstr "O serviço é parado e iniciado de novo."
+
+msgctxt "Confirm"
+msgid "Stop"
+msgstr "Parar"
+
+msgctxt "Confirm"
+msgid "Restart"
+msgstr "Reiniciar"

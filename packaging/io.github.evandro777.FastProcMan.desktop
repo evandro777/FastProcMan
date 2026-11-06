@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=FastProcMan
+Type=Application
+GenericName=Process Manager
+Comment=Light and fast process manager
+Exec=fastprocman
+Categories=System;Monitor;
+Icon=io.github.evandro777.FastProcMan
+Terminal=false

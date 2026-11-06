@@ -1,0 +1,1889 @@
+import {
+    Button, ComboBox, LineEdit, ListView, Palette, ScrollView, Switch, TabWidget, VerticalBox,
+} from "std-widgets.slint";
+
+// Strings built in Rust go through this global (never `format!` user-visible text in Rust).
+// Numbers are formatted in Rust and passed in as strings; the wording and units live here.
+export global Tr {
+    public pure function version(v: string) -> string { return @tr("Version {}", v); }
+    public pure function count(n: int) -> string { return n == 1 ? @tr("1 process") : @tr("{} processes", n); }
+    public pure function process-label(name: string, pid: int) -> string { return @tr("{} ({})", name, pid); }
+    // The tree's group for programs that belong to no application.
+    public pure function group-processes() -> string { return @tr("Processes"); }
+    public pure function warning-deleted() -> string { return @tr("Deleted program"); }
+    public pure function warning-temp() -> string { return @tr("In a temp folder"); }
+    public pure function warning-name() -> string { return @tr("Name mismatch"); }
+    // One plain sentence under the Warning row of Properties: what the flag means and when it is harmless.
+    public pure function warning-deleted-note() -> string { return @tr("The program file was deleted or replaced after it started. Normal right after an update; otherwise worth checking."); }
+    public pure function warning-temp-note() -> string { return @tr("Runs from a temporary folder, where downloaded or dropped programs often live."); }
+    public pure function warning-name-note() -> string { return @tr("Its name differs from its program file. Common for browsers and Electron apps."); }
+    public pure function size-b(v: string) -> string { return @tr("{} B", v); }
+    public pure function size-kb(v: string) -> string { return @tr("{} KB", v); }
+    public pure function size-mb(v: string) -> string { return @tr("{} MB", v); }
+    public pure function size-gb(v: string) -> string { return @tr("{} GB", v); }
+    public pure function rate(size: string) -> string { return @tr("{}/s", size); }
+    public pure function graph-cpu() -> string { return @tr("CPU"); }
+    public pure function graph-memory() -> string { return @tr("Memory"); }
+    public pure function graph-swap() -> string { return @tr("Swap"); }
+    public pure function graph-network() -> string { return @tr("Network"); }
+    public pure function graph-download() -> string { return @tr("Download"); }
+    public pure function graph-upload() -> string { return @tr("Upload"); }
+    public pure function graph-disk(name: string) -> string { return @tr("Disk {}", name); }
+    public pure function graph-read() -> string { return @tr("Read"); }
+    public pure function graph-write() -> string { return @tr("Write"); }
+    public pure function graph-processing() -> string { return @tr("Processing"); }
+    public pure function graph-encode() -> string { return @tr("Video encode"); }
+    public pure function graph-decode() -> string { return @tr("Video decode"); }
+    public pure function mem-summary(used: string, total: string, pct: string) -> string {
+        return @tr("{} of {} ({}%)", used, total, pct);
+    }
+    public pure function percent(v: string) -> string { return @tr("{}%", v); }
+    // Second line of a graph card, named so it is not mistaken for the first one (swap, video memory).
+    public pure function labelled(name: string, v: string) -> string { return @tr("{}: {}", name, v); }
+    // The top of an autoscaled graph, so a line at the top is not read as "a lot".
+    public pure function graph-peak(v: string) -> string { return @tr("Peak {}", v); }
+    public pure function net-summary(rx: string, tx: string) -> string { return @tr("Down {}  Up {}", rx, tx); }
+    public pure function disk-summary(r: string, w: string) -> string { return @tr("Read {}  Write {}", r, w); }
+    public pure function alert-memory-watch(left: string) -> string {
+        return @tr("⚠ {} of memory left: opening another big app may freeze the system", left);
+    }
+    public pure function alert-memory-danger(left: string) -> string { return @tr("⚠ Low memory: {} left", left); }
+    public pure function alert-io() -> string { return @tr("⚠ Disk is busy"); }
+    public pure function alert-cpu() -> string { return @tr("⚠ CPU overloaded"); }
+    // Same text as `process-label` (`{} ({})`), with a ready-made value (a size or a percentage).
+    public pure function alert-item(name: string, value: string) -> string { return @tr("{} ({})", name, value); }
+    public pure function status-ended(label: string) -> string { return @tr("Asked {} to quit", label); }
+    public pure function status-killed(label: string) -> string { return @tr("Forced {} to quit", label); }
+    public pure function status-exited() -> string { return @tr("The process has already exited"); }
+    public pure function status-cancelled() -> string { return @tr("Cancelled"); }
+    public pure function status-refused() -> string {
+        return @tr("PID 1 and FastProcMan itself cannot be quit");
+    }
+    public pure function status-failed(err: string) -> string { return @tr("Failed: {}", err); }
+    public pure function status-suspended(label: string) -> string { return @tr("Suspended {}", label); }
+    public pure function status-resumed(label: string) -> string { return @tr("Resumed {}", label); }
+    public pure function status-priority(label: string, nice: string) -> string {
+        return @tr("Set the priority of {} to {}", label, nice);
+    }
+    public pure function status-sandboxed() -> string {
+        return @tr("Cannot reach the host: only this sandbox's processes are shown");
+    }
+    public pure function unavailable() -> string { return @tr("Unavailable"); }
+    public pure function state-running() -> string { return @tr("Running"); }
+    public pure function state-sleeping() -> string { return @tr("Sleeping"); }
+    public pure function state-disk() -> string { return @tr("Waiting for disk"); }
+    public pure function state-stopped() -> string { return @tr("Stopped"); }
+    public pure function state-zombie() -> string { return @tr("Zombie"); }
+    public pure function state-exited() -> string { return @tr("Exited"); }
+    public pure function state-failed() -> string { return @tr("Failed"); }
+    public pure function startup-enabled() -> string { return @tr("Enabled"); }
+    public pure function startup-disabled() -> string { return @tr("Disabled"); }
+    public pure function startup-static() -> string { return @tr("Static"); }
+    public pure function startup-masked() -> string { return @tr("Masked"); }
+    public pure function count-services(n: int) -> string { return n == 1 ? @tr("1 service") : @tr("{} services", n); }
+    public pure function status-service-started(unit: string) -> string { return @tr("Started {}", unit); }
+    public pure function status-service-stopped(unit: string) -> string { return @tr("Stopped {}", unit); }
+    public pure function status-service-restarted(unit: string) -> string { return @tr("Restarted {}", unit); }
+    public pure function age-s(s: string) -> string { return @tr("{} s", s); }
+    public pure function age-min(m: string, s: string) -> string { return @tr("{} min {} s", m, s); }
+    public pure function age-h(h: string, m: string) -> string { return @tr("{} h {} min", h, m); }
+    public pure function age-d(d: string, h: string) -> string { return @tr("{} d {} h", d, h); }
+}
+
+// What the Properties dialog shows, all formatted in Rust (units and "unavailable" included).
+export struct PropData {
+    name: string,
+    pid: string,
+    ppid: string,
+    user: string,
+    state: string,
+    threads: string,
+    priority: string,
+    age: string,
+    cpu: string,
+    memory: string,
+    resident: string,
+    shared: string,
+    virtual-mem: string,
+    io: string,
+    warning: string,
+    warning-note: string,
+    exe: string,
+    cmdline: string,
+    cwd: string,
+}
+
+// One row of the process table, formatted in Rust. `expander`: 0 no children, 1 collapsed, 2 expanded. `icon` is
+// empty until the icon thread finds one; `depth` is 0 in the flat list.
+export struct ProcRow {
+    icon: image,
+    depth: int,
+    expander: int,
+    name: string,
+    pid: string,
+    user: string,
+    cpu: string,
+    memory: string,
+    warning: string,
+    // A strong warning (deleted program, temp folder): the Warning cell is red. A name mismatch is too noisy for that.
+    strong: bool,
+    // Named by the slowdown banner: drawn in amber.
+    risky: bool,
+    // An application (or "Processes") row of the tree: no process behind it, so no End, Kill, Properties or menu.
+    group: bool,
+}
+
+// One row of the Services table, formatted in Rust. Pid, CPU and memory are empty for a service with no process.
+export struct ServiceRow {
+    name: string,
+    pid: string,
+    user: string,
+    cpu: string,
+    memory: string,
+    status: string,
+    startup: string,
+}
+
+// One chart's data, filled by Rust. Paths are in a 59 x 100 box (newest sample at x = 59, y grows downwards).
+export struct GraphData {
+    title: string,
+    value: string,
+    // Second line of text under the title (swap, video memory); empty for none.
+    extra: string,
+    // One name per line in `paths`, in the same order; empty when there is a single line.
+    legend: [string],
+    paths: [string],
+    // `paths[0]` closed down to the bottom edge, drawn as a soft area under the line; empty with no samples.
+    fill: string,
+    // Thin faint lines behind `paths` (every CPU core): several sub-paths in one string.
+    faint: string,
+}
+
+// An in-window overlay, not a second window: closing Main always ends the app, and ui-snapshot.sh can capture it.
+component About inherits Rectangle {
+    in property <string> version;
+    callback dismiss();
+    callback open-website();
+    background: #0008;
+    init => { keys.focus(); }
+
+    // Swallows clicks so nothing behind the overlay is reachable; a click outside the card closes it.
+    TouchArea { clicked => { root.dismiss(); } }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.dismiss();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        width: 320px;
+        height: box.preferred-height;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Palette.background;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Palette.border;
+        TouchArea { }
+        box := VerticalBox {
+            alignment: start;
+            padding: 18px;
+            spacing: 14px;
+            HorizontalLayout {
+                alignment: center;
+                Image {
+                    source: @image-url("../../../packaging/io.github.evandro777.FastProcMan.svg");
+                    width: 64px;
+                    height: 64px;
+                }
+            }
+            Text { text: "FastProcMan"; font-size: 20px; font-weight: 700; horizontal-alignment: center; }
+            Text { text: Tr.version(root.version); horizontal-alignment: center; }
+            Text {
+                text: @tr("A light and fast process manager built with Rust and Slint.");
+                wrap: word-wrap;
+                horizontal-alignment: center;
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button { text: @tr("Website"); clicked => { root.open-website(); } }
+                Button { text: @tr("Close"); primary: true; clicked => { root.dismiss(); } }
+            }
+        }
+    }
+}
+
+// Options. Like Confirm it has no FocusScope: `Main.shortcuts` answers Escape and Space for it (a closing popup menu
+// hands the keyboard focus back to what had it, so the overlay cannot hold it).
+component Settings inherits Rectangle {
+    in-out property <bool> cpu-whole-machine;
+    in-out property <bool> group-apps;
+    // 0 follows the system, then one entry per bundled language (the order is `LANGUAGES` in main.rs).
+    in-out property <int> language-index;
+    callback language-changed(int);
+    callback dismiss();
+    callback about();
+    callback cpu-scope-changed(bool);
+    callback group-apps-changed(bool);
+    background: #0008;
+
+    TouchArea { clicked => { root.dismiss(); } }
+    Rectangle {
+        width: min(420px, parent.width - 32px);
+        height: box.preferred-height;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Palette.background;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Palette.border;
+        TouchArea { }
+        box := VerticalBox {
+            alignment: start;
+            padding: 18px;
+            spacing: 14px;
+            Text { text: @tr("Settings"); font-size: 16px; font-weight: 700; }
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: @tr("Language");
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                // Language names stay in their own language, so a user lost in the wrong one can find theirs.
+                ComboBox {
+                    width: 190px;
+                    model: [@tr("System"), "English", "Português (Brasil)"];
+                    current-index <=> root.language-index;
+                    selected(_) => { root.language-changed(self.current-index); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: @tr("CPU % of the whole machine");
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    wrap: word-wrap;
+                }
+                Switch {
+                    checked <=> root.cpu-whole-machine;
+                    toggled => { root.cpu-scope-changed(self.checked); }
+                }
+            }
+            Text {
+                text: @tr("Off: 100% is one core, so a busy process can pass 100%. On: 100% is all cores together.");
+                wrap: word-wrap;
+                font-size: 11px;
+                color: Palette.foreground.with-alpha(0.6);
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: @tr("Group the tree by application");
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    wrap: word-wrap;
+                }
+                Switch {
+                    checked <=> root.group-apps;
+                    toggled => { root.group-apps-changed(self.checked); }
+                }
+            }
+            Text {
+                text: @tr("Tree mode only. On: applications first, the rest under Processes. Off: one plain tree.");
+                wrap: word-wrap;
+                font-size: 11px;
+                color: Palette.foreground.with-alpha(0.6);
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button { text: @tr("About"); clicked => { root.about(); } }
+                Button { text: @tr("Close"); primary: true; clicked => { root.dismiss(); } }
+            }
+        }
+    }
+}
+
+// Asks before End or Kill; it only ever opens from a user action. Enter and Escape are handled by `Main`, not here:
+// a closing popup menu hands the keyboard focus back to what had it before, so a focus scope of this overlay would
+// lose it and Enter/Escape would reach the table behind.
+component Confirm inherits Rectangle {
+    in property <string> label;
+    // The process's icon (empty when it has none, and never shown for a service).
+    in property <image> icon;
+    in property <bool> force;
+    // 0 a process (End or Kill, by `force`), 1 stop a service, 2 restart a service.
+    in property <int> service;
+    callback accepted();
+    callback dismiss();
+    background: #0008;
+
+    TouchArea { clicked => { root.dismiss(); } }
+    Rectangle {
+        width: min(380px, root.width - 32px);
+        height: box.preferred-height;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Palette.background;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Palette.border;
+        TouchArea { }
+        box := VerticalBox {
+            alignment: start;
+            padding: 18px;
+            spacing: 14px;
+            HorizontalLayout {
+                spacing: 10px;
+                if root.service == 0 && root.icon.width > 0: Image {
+                    source: root.icon;
+                    width: 24px;
+                    height: 24px;
+                    y: 0px;
+                }
+                Text {
+                    text: root.service == 1 ? @tr("Stop {}?", root.label)
+                        : root.service == 2 ? @tr("Restart {}?", root.label)
+                        : root.force ? @tr("Force quit {}?", root.label) : @tr("Quit {}?", root.label);
+                    font-size: 16px;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+            Text {
+                text: root.service == 1 ? @tr("The service and all its processes are stopped.")
+                    : root.service == 2 ? @tr("The service is stopped and started again.")
+                    : root.force
+                    ? @tr("The program is stopped immediately and cannot save anything. Use this only if Quit does not work.")
+                    : @tr("The program is asked to quit. It may ask to save your work first.");
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Button { text: @tr("Cancel"); clicked => { root.dismiss(); } }
+                Button {
+                    text: root.service == 1 ? @tr("Stop") : root.service == 2 ? @tr("Restart")
+                        : root.force ? @tr("Force quit") : @tr("Quit");
+                    primary: true;
+                    clicked => { root.accepted(); }
+                }
+            }
+        }
+    }
+}
+
+component PropRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    spacing: 12px;
+    Text {
+        text: root.label;
+        width: 130px;
+        font-size: 13px;
+        vertical-alignment: top;
+        color: Palette.foreground.with-alpha(0.7);
+    }
+    // Read-only TextInput so the value can be selected and copied. A wrapped one in a layout reports a single
+    // line of height, so the room is estimated from the character count and the fixed value width.
+    TextInput {
+        text: root.value;
+        read-only: true;
+        wrap: char-wrap;
+        font-size: 13px;
+        color: Palette.foreground;
+        horizontal-stretch: 1;
+        min-height: max(1, ceil(root.value.character-count * 7.5px / 380px)) * 18px;
+    }
+}
+
+// Escape is handled by `Main`, for the reason given at `Confirm`.
+component Properties inherits Rectangle {
+    in property <PropData> data;
+    callback dismiss();
+    background: #0008;
+
+    TouchArea { clicked => { root.dismiss(); } }
+    Rectangle {
+        width: min(580px, root.width - 32px);
+        height: min(list.preferred-height + 110px, root.height - 32px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Palette.background;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Palette.border;
+        TouchArea { }
+        VerticalBox {
+            Text { text: @tr("Properties"); font-size: 16px; font-weight: 700; }
+            ScrollView {
+                // `alignment: start`, or a short list would spread its rows over the whole card.
+                list := VerticalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    PropRow { label: @tr("Name"); value: root.data.name; }
+                    PropRow { label: @tr("PID"); value: root.data.pid; }
+                    PropRow { label: @tr("Parent PID"); value: root.data.ppid; }
+                    PropRow { label: @tr("User"); value: root.data.user; }
+                    PropRow { label: @tr("State"); value: root.data.state; }
+                    PropRow { label: @tr("Threads"); value: root.data.threads; }
+                    PropRow { label: @tr("Priority (nice)"); value: root.data.priority; }
+                    PropRow { label: @tr("Running for"); value: root.data.age; }
+                    PropRow { label: @tr("CPU"); value: root.data.cpu; }
+                    PropRow { label: @tr("Memory"); value: root.data.memory; }
+                    PropRow { label: @tr("Resident memory"); value: root.data.resident; }
+                    PropRow { label: @tr("Shared memory"); value: root.data.shared; }
+                    PropRow { label: @tr("Virtual memory"); value: root.data.virtual-mem; }
+                    Text {
+                        text: @tr("Memory is resident minus shared: what the process uses by itself. Virtual includes reserved space that is not in RAM.");
+                        wrap: word-wrap;
+                        font-size: 11px;
+                        color: Palette.foreground.with-alpha(0.6);
+                    }
+                    PropRow { label: @tr("Disk since start"); value: root.data.io; }
+                    if root.data.warning != "": PropRow { label: @tr("Warning"); value: root.data.warning; }
+                    if root.data.warning != "": Text {
+                        text: root.data.warning-note;
+                        wrap: word-wrap;
+                        font-size: 11px;
+                        color: Palette.foreground.with-alpha(0.6);
+                    }
+                    PropRow { label: @tr("Program"); value: root.data.exe; }
+                    PropRow { label: @tr("Command line"); value: root.data.cmdline; }
+                    PropRow { label: @tr("Working folder"); value: root.data.cwd; }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                Button { text: @tr("Close"); primary: true; clicked => { root.dismiss(); } }
+            }
+        }
+    }
+}
+
+// Keys are not handled here but by `Main`: a page-level focus scope only sees them while the focus is inside the page,
+// and a tab header, the Refresh box or a closed popup menu leaves it elsewhere.
+// Sizes of the process table. Rows and header share the column widths, so they line up.
+global Cols {
+    out property <length> head-h: 28px;
+    out property <length> row-h: 24px;
+    // Wide enough for a 7-digit PID (pid_max can be 4194304).
+    out property <length> pid: 80px;
+    out property <length> user: 96px;
+    out property <length> cpu: 88px;
+    out property <length> memory: 100px;
+    out property <length> warning: 130px;
+    // The ListView draws its 14 px scroll bar over the right edge of the rows: keep the text clear of it.
+    out property <length> bar: 14px;
+}
+
+// The sort arrow. It takes room only while its column is the sorted one; the title does not move either way,
+// because the header cell anchors it to the edge the numbers or the text start from.
+component TabItem inherits Rectangle {
+    in property <string> title;
+    in property <bool> active;
+    callback clicked();
+    accessible-role: tab;
+    accessible-label: root.title;
+    accessible-item-selected: root.active;
+    accessible-action-default => { root.clicked(); }
+    background: touch.has-hover && !root.active ? Palette.alternate-background : transparent;
+    // The tab is always as wide as its bold title, so going bold on selection does not move the other tabs.
+    preferred-width: bold.preferred-width + 28px;
+    min-width: self.preferred-width;
+    bold := Text { text: root.title; font-weight: 600; visible: false; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text {
+            text: root.title;
+            font-weight: root.active ? 600 : 400;
+            color: root.active ? Palette.foreground : Palette.foreground.with-alpha(0.65);
+            vertical-alignment: center;
+        }
+    }
+    Rectangle {
+        y: parent.height - 2px;
+        height: 2px;
+        background: root.active ? Palette.accent-background : transparent;
+    }
+}
+
+component SortArrow inherits Rectangle {
+    in property <bool> active;
+    in property <bool> ascending;
+    width: root.active ? 8px : 0px;
+    if root.active: Path {
+        y: (parent.height - self.height) / 2;
+        width: 8px;
+        height: 5px;
+        viewbox-width: 8;
+        viewbox-height: 5;
+        commands: root.ascending ? "M 0 5 L 4 0 L 8 5 Z" : "M 0 0 L 8 0 L 4 5 Z";
+        fill: Palette.accent-background;
+    }
+}
+
+component HeaderCell inherits Rectangle {
+    in property <string> title;
+    in property <bool> active;
+    in property <bool> ascending;
+    in property <TextHorizontalAlignment> align: left;
+    callback clicked();
+    background: touch.has-hover ? Palette.border : transparent;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 4px;
+        // The arrow hugs its title: on the left of a right-aligned one, so the title ends where the numbers under it
+        // end, and on the right of a left-aligned one. The spacer takes the rest of the cell.
+        if root.align == TextHorizontalAlignment.right: Rectangle { horizontal-stretch: 1; }
+        if root.align == TextHorizontalAlignment.right: SortArrow { active: root.active; ascending: root.ascending; }
+        Text {
+            text: root.title;
+            // Quiet headers; the sorted column is the one at full strength.
+            font-weight: 500;
+            color: root.active ? Palette.foreground : Palette.foreground.with-alpha(0.7);
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        if root.align != TextHorizontalAlignment.right: SortArrow { active: root.active; ascending: root.ascending; }
+        if root.align != TextHorizontalAlignment.right: Rectangle { horizontal-stretch: 1; }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// A text cell with the table's padding (`Text` has none).
+component Cell inherits Rectangle {
+    in property <string> text;
+    in property <brush> fg;
+    in property <TextHorizontalAlignment> align: left;
+    Text {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text: root.text;
+        color: root.fg;
+        overflow: elide;
+        horizontal-alignment: root.align;
+        vertical-alignment: center;
+    }
+}
+
+component ProcRowItem inherits Rectangle {
+    in property <ProcRow> info;
+    in property <bool> selected;
+    in property <bool> tree;
+    // Button (0 left, 1 right) and the position inside the row.
+    callback pressed(int, length, length);
+    callback toggle();
+    // Amber for a process the slowdown banner names.
+    // Every other row is a shade darker, so the eye can follow a row across the wide Name column.
+    in property <bool> odd;
+    // A selected row keeps its own text colour (amber, red): the selection is a faint tint plus a bar on the left.
+    property <brush> fg: root.info.risky ? #e0a030 : Palette.foreground;
+    // The Name column's width, from the row's (the list sets that), so no binding loop through the layout. The indent
+    // is capped to leave the chevron, the icon and a little text: at the 640 px minimum a real desktop's tree is
+    // deeper than the column is wide (about 17 levels fit at the default 860 px).
+    property <length> name-w: root.width - Cols.bar - Cols.pid - Cols.user - Cols.cpu - Cols.memory - Cols.warning;
+    property <length> indent: min(root.info.depth * 16px, max(0px, root.name-w - 96px));
+    height: Cols.row-h;
+    background: root.selected ? Palette.accent-background.with-alpha(0.22)
+        : (touch.has-hover ? Palette.alternate-background : (root.odd ? Palette.foreground.with-alpha(0.03) : transparent));
+    accessible-role: list-item;
+    accessible-label: root.info.name;
+    accessible-description: root.info.pid;
+    accessible-item-selected: root.selected;
+    accessible-expandable: root.info.expander > 0;
+    accessible-expanded: root.info.expander == 2;
+
+    // Under the content: a press on a cell reaches it, a press on the chevron stops at the chevron.
+    touch := TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && (e.button == PointerEventButton.left || e.button == PointerEventButton.right) {
+                root.pressed(e.button == PointerEventButton.right ? 1 : 0, self.mouse-x, self.mouse-y);
+            }
+        }
+    }
+    Rectangle {
+        visible: root.selected;
+        x: 0px;
+        width: 3px;
+        height: parent.height;
+        background: Palette.accent-background;
+    }
+    HorizontalLayout {
+        padding-right: Cols.bar;
+        // Clipped, with the content sized from the cell and not the other way round: a deep tree row must neither
+        // widen the Name column (its minimum would then differ from the header's and push the other columns out of
+        // line) nor paint over the PID column.
+        Rectangle {
+            horizontal-stretch: 1;
+            min-width: 100px;
+            clip: true;
+            HorizontalLayout {
+                width: parent.width;
+                height: parent.height;
+                padding-left: 8px;
+                spacing: 6px;
+                Rectangle { width: root.tree ? root.indent : 0px; }
+                if root.tree: Rectangle {
+                    width: 14px;
+                    if root.info.expander > 0: Path {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        width: 10px;
+                        height: 10px;
+                        viewbox-width: 10;
+                        viewbox-height: 10;
+                        commands: root.info.expander == 1 ? "M 3 1 L 7 5 L 3 9" : "M 1 3 L 5 7 L 9 3";
+                        stroke: root.fg;
+                        stroke-width: 1.5px;
+                        stroke-line-cap: round;
+                        stroke-line-join: round;
+                    }
+                    if root.info.expander > 0: TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        clicked => { root.toggle(); }
+                    }
+                }
+                // The slot is always there, found or not, so names stay aligned.
+                Rectangle {
+                    width: 16px;
+                    Image {
+                        y: (parent.height - self.height) / 2;
+                        width: 16px;
+                        height: 16px;
+                        source: root.info.icon;
+                        image-fit: contain;
+                    }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.info.name;
+                    color: root.fg;
+                    font-weight: root.info.group ? 700 : 400;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        Cell { width: Cols.pid; text: root.info.pid; fg: root.fg; align: right; }
+        Cell { width: Cols.user; text: root.info.user; fg: root.fg; }
+        Cell { width: Cols.cpu; text: root.info.cpu; fg: root.fg; align: right; }
+        Cell { width: Cols.memory; text: root.info.memory; fg: root.fg; align: right; }
+        Cell { width: Cols.warning; text: root.info.warning; fg: root.info.strong ? #e05050 : root.fg; }
+    }
+}
+
+component ProcessesPage inherits Rectangle {
+    in property <[ProcRow]> rows;
+    in property <string> selected-label;
+    // `selected-label` as it was when the menu opened: Suspend, Resume and Priority act only if it still matches
+    // (in tree mode the selection can move to an ancestor while the menu is open).
+    in-out property <string> menu-label;
+    in property <bool> selected-stopped;
+    in-out property <int> selected-row: -1;
+    in-out property <string> filter;
+    in-out property <bool> suspicious-only;
+    in-out property <bool> tree: false;
+    // The sorted column and its direction, kept here so they survive a tab switch. Memory, descending, to start:
+    // the same as `State.sort` in Rust.
+    in-out property <int> sort-col: 4;
+    in-out property <bool> sort-asc: false;
+    callback filter-changed(string);
+    callback suspicious-toggled(bool);
+    callback toggle-expand(int);
+    // A row was pressed: `Main` takes the keyboard focus back, or the filter box (focused from the start) would keep
+    // Delete and the Menu key for itself.
+    callback focus-list();
+    callback row-selected(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+    // End and kill only ask: Main shows the confirmation and the Rust callbacks run after it.
+    callback end();
+    callback kill();
+    callback suspend();
+    callback resume();
+    callback renice(int);
+    callback properties();
+
+    // The selection was last moved with the arrow keys from the filter box and the text has not been edited since:
+    // the user is in the list, so Delete there means "end this process". The box does not expose its cursor.
+    property <bool> in-list: false;
+
+    // Rust calls this through Main: the cursor is a byte offset, so only Rust can compute it for a typed character.
+    public function focus-filter(cursor: int) {
+        root.in-list = false;
+        search.focus();
+        search.set-selection-offsets(cursor, cursor);
+    }
+    // Ctrl+F: focus the box with its text selected, so typing replaces it.
+    public function focus-search() {
+        root.in-list = false;
+        search.focus();
+        search.select-all();
+    }
+    // Escape: the box is a Slint property, so the Rust side is told by hand (`edited` only fires for typing).
+    public function clear-filter() {
+        root.in-list = false;
+        root.filter = "";
+        root.filter-changed("");
+    }
+    // Selects a row by a user action (a click or a key) and scrolls it into view. Rows out of range are ignored, so a
+    // key at either end does nothing. Rust never calls this (it only sets `selected-row`, after replacing the model).
+    function select-row(r: int) {
+        if r < 0 || r >= root.rows.length {
+            return;
+        }
+        root.selected-row = r;
+        root.row-selected(r);
+        root.reveal(r);
+    }
+    // Scrolls row `r` into view; Rust calls it after it selected a row itself (the pressure warning).
+    public function reveal(r: int) {
+        if r * Cols.row-h + list.content-y < 0 {
+            list.content-y = -r * Cols.row-h;
+        } else if (r + 1) * Cols.row-h + list.content-y > list.visible-height {
+            list.content-y = list.visible-height - (r + 1) * Cols.row-h;
+        }
+    }
+    // Moves the selection by `delta` rows.
+    public function move-selection(delta: int) {
+        root.select-row(root.selected-row + delta);
+    }
+    // PageUp/PageDown: one visible page, clamped to the list because a jump past the end would do nothing.
+    public function move-page(dir: int) {
+        if root.rows.length > 0 {
+            root.select-row(clamp(
+                root.selected-row + dir * max(1, floor(list.visible-height / Cols.row-h) - 1),
+                0,
+                root.rows.length - 1
+            ));
+        }
+    }
+    // Left closes and Right opens the selected tree row; nothing happens when it is already so, or has no children.
+    public function expand-selected(open: bool) {
+        if root.tree && root.selected-row >= 0 && root.selected-row < root.rows.length
+            && root.rows[root.selected-row].expander == (open ? 1 : 2) {
+            root.toggle-expand(root.selected-row);
+        }
+    }
+    // At the selected row, for the Menu key. The menu area has the origin of the header.
+    public function show-menu() {
+        // `selected-label` is empty on a group row (no process is selected there).
+        if root.selected-row >= 0 && root.selected-label != "" {
+            root.menu-label = root.selected-label;
+            menu.show({
+                x: 60px,
+                y: clamp(
+                    Cols.head-h + (root.selected-row + 0.5) * Cols.row-h + list.content-y,
+                    Cols.head-h,
+                    max(Cols.head-h, Cols.head-h + list.visible-height - Cols.row-h)
+                )
+            });
+        }
+    }
+    // Text columns start ascending, numeric ones (and Warning, worst first) descending; a second click flips.
+    function sort-by(col: int) {
+        if root.sort-col == col {
+            root.sort-asc = !root.sort-asc;
+        } else {
+            root.sort-col = col;
+            root.sort-asc = col <= 2;
+        }
+        if root.sort-asc {
+            root.sort-ascending(col);
+        } else {
+            root.sort-descending(col);
+        }
+    }
+
+    // The filter box has the focus from the start, so typing works without a click.
+    init => { search.focus(); }
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            // The old settings button gave this row its height; without it the box would take all the spare space.
+            height: 32px;
+            search := LineEdit {
+                horizontal-stretch: 1;
+                placeholder-text: @tr("Filter by name or PID (Ctrl+F)");
+                text <=> root.filter;
+                edited(t) => {
+                    root.in-list = false;
+                    root.filter-changed(t);
+                }
+                // The box sees the key before `Main` does. Up and Down move through the list without leaving the
+                // box, and the Menu key opens the menu of the selected process: left alone, the box would open its
+                // own Cut/Copy/Paste menu (its context menu is a parent of the text and takes the key).
+                key-pressed(event) => {
+                    // The box takes Escape itself, so `Main` would never see it: clear what was typed.
+                    if event.text == Key.Escape && root.filter != "" {
+                        root.clear-filter();
+                        return accept;
+                    }
+                    if event.text == Key.UpArrow {
+                        root.in-list = true;
+                        root.move-selection(-1);
+                        return accept;
+                    }
+                    if event.text == Key.DownArrow {
+                        root.in-list = true;
+                        root.move-selection(1);
+                        return accept;
+                    }
+                    if event.text == Key.PageUp || event.text == Key.PageDown {
+                        root.in-list = true;
+                        root.move-page(event.text == Key.PageUp ? -1 : 1);
+                        return accept;
+                    }
+                    // Delete is the box's own (it erases the next character), so after the arrows picked a process it
+                    // did nothing at all. It asks to end the process when the user is working in the list, or when
+                    // the box is empty (nothing to erase); Shift asks to force quit.
+                    if event.text == Key.Delete && root.selected-label != "" && (root.in-list || root.filter == "") {
+                        if event.modifiers.shift {
+                            root.kill();
+                        } else {
+                            root.end();
+                        }
+                        return accept;
+                    }
+                    if event.text == Key.Return && event.modifiers.alt && root.selected-label != "" {
+                        root.properties();
+                        return accept;
+                    }
+                    if event.text == Key.Menu && root.selected-label != "" {
+                        root.show-menu();
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+            Text { text: @tr("Suspicious only"); vertical-alignment: center; }
+            Switch {
+                checked <=> root.suspicious-only;
+                toggled => { root.suspicious-toggled(self.checked); }
+            }
+        }
+        Rectangle {
+            // Children of a plain Rectangle keep their preferred size unless told to fill it.
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                Rectangle {
+                    height: Cols.head-h;
+                    background: Palette.alternate-background;
+                    HorizontalLayout {
+                        padding-right: Cols.bar;
+                        HeaderCell {
+                            horizontal-stretch: 1;
+                            min-width: 100px;
+                            title: @tr("Name");
+                            active: root.sort-col == 0;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(0); }
+                        }
+                        HeaderCell {
+                            width: Cols.pid;
+                            title: @tr("PID");
+                            align: right;
+                            active: root.sort-col == 1;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(1); }
+                        }
+                        HeaderCell {
+                            width: Cols.user;
+                            title: @tr("User");
+                            active: root.sort-col == 2;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(2); }
+                        }
+                        HeaderCell {
+                            width: Cols.cpu;
+                            title: @tr("CPU %");
+                            align: right;
+                            active: root.sort-col == 3;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(3); }
+                        }
+                        HeaderCell {
+                            width: Cols.memory;
+                            title: @tr("Memory");
+                            align: right;
+                            active: root.sort-col == 4;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(4); }
+                        }
+                        HeaderCell {
+                            width: Cols.warning;
+                            title: @tr("Warning");
+                            active: root.sort-col == 5;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(5); }
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Palette.border;
+                    }
+                }
+                list := ListView {
+                    for data[i] in root.rows: ProcRowItem {
+                        info: data;
+                        tree: root.tree;
+                        odd: mod(i, 2) == 1;
+                        selected: i == root.selected-row;
+                        // A right click selects its row first. The ContextMenuArea below is disabled because it
+                        // would open itself on any right click that reaches it, before the row was selected.
+                        pressed(button, x, y) => {
+                            root.focus-list();
+                            root.select-row(i);
+                            if button == 1 && !data.group {
+                                root.menu-label = root.selected-label;
+                                menu.show({ x: x, y: Cols.head-h + i * Cols.row-h + list.content-y + y });
+                            }
+                        }
+                        toggle => {
+                            root.focus-list();
+                            root.toggle-expand(i);
+                        }
+                    }
+                }
+            }
+            // Same size and origin as the header + list, so the position computed above is also the menu's.
+            menu := ContextMenuArea {
+                width: parent.width;
+                height: parent.height;
+                enabled: false;
+                Menu {
+                    MenuItem { title: @tr("Quit…"); activated => { root.end(); } }
+                    MenuItem { title: @tr("Force quit…"); activated => { root.kill(); } }
+                    MenuSeparator { }
+                    if !root.selected-stopped: MenuItem { title: @tr("Suspend"); activated => { root.suspend(); } }
+                    if root.selected-stopped: MenuItem { title: @tr("Resume"); activated => { root.resume(); } }
+                    Menu {
+                        title: @tr("Priority");
+                        MenuItem { title: @tr("Very high (-10)"); activated => { root.renice(-10); } }
+                        MenuItem { title: @tr("High (-5)"); activated => { root.renice(-5); } }
+                        MenuItem { title: @tr("Normal (0)"); activated => { root.renice(0); } }
+                        MenuItem { title: @tr("Low (5)"); activated => { root.renice(5); } }
+                        MenuItem { title: @tr("Very low (19)"); activated => { root.renice(19); } }
+                    }
+                    MenuSeparator { }
+                    MenuItem { title: @tr("Properties"); activated => { root.properties(); } }
+                }
+            }
+            if root.rows.length == 0: Text {
+                width: parent.width;
+                height: parent.height;
+                // Nothing to match when no filter is active: say there are no processes, and how to clear a filter.
+                text: root.filter == "" && !root.suspicious-only ? @tr("No processes")
+                    : root.filter == "" ? @tr("No matching processes")
+                    : @tr("No matching processes") + "\n" + @tr("Press Esc to clear the filter");
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// Column widths of the Services table, wide enough for the longest pt_BR words; Name gets the rest (about 86 px at
+// the 640 px minimum window width). Its minimum (80 px) plus these 524 px, the scroll bar and the page padding must
+// stay under 640 px, or the page is wider than the window and clips its right edge.
+global SvcCols {
+    out property <length> pid: 68px;
+    out property <length> user: 88px;
+    out property <length> cpu: 72px;
+    out property <length> memory: 92px;
+    out property <length> status: 104px;
+    out property <length> startup: 100px;
+}
+
+component ServiceRowItem inherits Rectangle {
+    in property <ServiceRow> info;
+    in property <bool> selected;
+    callback pressed();
+    in property <bool> odd;
+    property <brush> fg: Palette.foreground;
+    height: Cols.row-h;
+    background: root.selected ? Palette.accent-background.with-alpha(0.22)
+        : (touch.has-hover ? Palette.alternate-background : (root.odd ? Palette.foreground.with-alpha(0.03) : transparent));
+    accessible-role: list-item;
+    accessible-label: root.info.name;
+    accessible-description: root.info.status;
+    accessible-item-selected: root.selected;
+
+    touch := TouchArea { clicked => { root.pressed(); } }
+    Rectangle {
+        visible: root.selected;
+        x: 0px;
+        width: 3px;
+        height: parent.height;
+        background: Palette.accent-background;
+    }
+    HorizontalLayout {
+        padding-right: Cols.bar;
+        Cell { horizontal-stretch: 1; min-width: 80px; text: root.info.name; fg: root.fg; }
+        Cell { width: SvcCols.pid; text: root.info.pid; fg: root.fg; align: right; }
+        Cell { width: SvcCols.user; text: root.info.user; fg: root.fg; }
+        Cell { width: SvcCols.cpu; text: root.info.cpu; fg: root.fg; align: right; }
+        Cell { width: SvcCols.memory; text: root.info.memory; fg: root.fg; align: right; }
+        // Status is already the translated word, so compare with the same `Tr` function Rust used to fill it.
+        Cell {
+            width: SvcCols.status;
+            text: root.info.status;
+            fg: root.info.status == Tr.state-failed() ? #e05050 : Palette.foreground;
+        }
+        Cell { width: SvcCols.startup; text: root.info.startup; fg: root.fg; }
+    }
+}
+
+component ServicesPage inherits Rectangle {
+    in property <[ServiceRow]> rows;
+    in-out property <int> selected-row: -1;
+    in-out property <string> filter;
+    in-out property <int> status-index: 0;
+    in-out property <int> startup-index: 0;
+    // Name, ascending, to start: the same as `Svc::new` in Rust.
+    in-out property <int> sort-col: 0;
+    in-out property <bool> sort-asc: true;
+    callback filter-changed(string);
+    callback status-changed(int);
+    callback startup-changed(int);
+    callback row-selected(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+    // A row was pressed: `Main` takes the keyboard focus back (see `ProcessesPage.focus-list`).
+    callback focus-list();
+
+    public function focus-search() {
+        search.focus();
+        search.select-all();
+    }
+    // Rust calls this through Main for a typed character (byte offset, see `ProcessesPage.focus-filter`).
+    public function focus-filter(cursor: int) {
+        search.focus();
+        search.set-selection-offsets(cursor, cursor);
+    }
+    public function clear-filter() {
+        root.filter = "";
+        root.filter-changed("");
+    }
+    // Text columns and Status (failed first) start ascending, the numbers descending; a second click flips.
+    function sort-by(col: int) {
+        if root.sort-col == col {
+            root.sort-asc = !root.sort-asc;
+        } else {
+            root.sort-col = col;
+            root.sort-asc = col == 0 || col == 2 || col >= 5;
+        }
+        if root.sort-asc {
+            root.sort-ascending(col);
+        } else {
+            root.sort-descending(col);
+        }
+    }
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            search := LineEdit {
+                horizontal-stretch: 1;
+                placeholder-text: @tr("Filter by service name (Ctrl+F)");
+                text <=> root.filter;
+                edited(t) => { root.filter-changed(t); }
+                // The box takes Escape itself, so `Main` would never see it.
+                key-pressed(event) => {
+                    if event.text == Key.Escape && root.filter != "" {
+                        root.clear-filter();
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+            ComboBox {
+                width: 140px;
+                model: [@tr("All statuses"), @tr("Running"), @tr("Failed"), @tr("Stopped")];
+                current-index <=> root.status-index;
+                selected(_) => { root.status-changed(self.current-index); }
+            }
+            ComboBox {
+                width: 140px;
+                model: [@tr("All startups"), @tr("Enabled"), @tr("Disabled"), @tr("Static"), @tr("Masked")];
+                current-index <=> root.startup-index;
+                selected(_) => { root.startup-changed(self.current-index); }
+            }
+        }
+        Rectangle {
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                Rectangle {
+                    height: Cols.head-h;
+                    background: Palette.alternate-background;
+                    HorizontalLayout {
+                        padding-right: Cols.bar;
+                        HeaderCell {
+                            horizontal-stretch: 1;
+                            min-width: 80px;
+                            title: @tr("Name");
+                            active: root.sort-col == 0;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(0); }
+                        }
+                        HeaderCell {
+                            width: SvcCols.pid;
+                            title: @tr("PID");
+                            align: right;
+                            active: root.sort-col == 1;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(1); }
+                        }
+                        HeaderCell {
+                            width: SvcCols.user;
+                            title: @tr("User");
+                            active: root.sort-col == 2;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(2); }
+                        }
+                        HeaderCell {
+                            width: SvcCols.cpu;
+                            title: @tr("CPU %");
+                            align: right;
+                            active: root.sort-col == 3;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(3); }
+                        }
+                        HeaderCell {
+                            width: SvcCols.memory;
+                            title: @tr("Memory");
+                            align: right;
+                            active: root.sort-col == 4;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(4); }
+                        }
+                        HeaderCell {
+                            width: SvcCols.status;
+                            title: @tr("Status");
+                            active: root.sort-col == 5;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(5); }
+                        }
+                        HeaderCell {
+                            width: SvcCols.startup;
+                            title: @tr("Startup");
+                            active: root.sort-col == 6;
+                            ascending: root.sort-asc;
+                            clicked => { root.sort-by(6); }
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Palette.border;
+                    }
+                }
+                ListView {
+                    for data[i] in root.rows: ServiceRowItem {
+                        info: data;
+                        odd: mod(i, 2) == 1;
+                        selected: i == root.selected-row;
+                        pressed => {
+                            root.focus-list();
+                            root.selected-row = i;
+                            root.row-selected(i);
+                        }
+                    }
+                }
+            }
+            if root.rows.length == 0: Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.filter == "" ? @tr("No matching services")
+                    : @tr("No matching services") + "\n" + @tr("Press Esc to clear the filter");
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+component GraphCard inherits Rectangle {
+    in property <GraphData> data;
+    in property <bool> ready;
+    // By position in `data.paths`; a GPU card has four lines.
+    property <[color]> colors: [Palette.accent-background, #e8a33d, #b07cc6, #4fb3a9];
+    // Equal columns whatever the value text says: the grid sized them from the text's width, so every change of
+    // "Down 1.5 MB/s  Up 200 KB/s" moved the column edge and the line with it by a pixel. All three are needed:
+    // an equal stretch alone still leaves the columns different by their contents' minimum widths.
+    min-width: 200px;
+    preferred-width: 0px;
+    horizontal-stretch: 1;
+    background: Palette.control-background;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Palette.border;
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            // A long GPU name gives way first; the value keeps its width while there is room.
+            Text { text: root.data.title; font-weight: 700; overflow: elide; horizontal-stretch: 1; }
+            Text { text: root.data.value; horizontal-alignment: right; overflow: elide; horizontal-stretch: 0; }
+        }
+        if root.data.extra != "": Text {
+            text: root.data.extra;
+            horizontal-alignment: right;
+            overflow: elide;
+            vertical-stretch: 0;
+        }
+        // Series colours are repeated here because the lines alone do not say which is which.
+        // Two columns, so a GPU's four names wrap onto a second row instead of running off a narrow card.
+        // Not built when empty: an empty grid caps the card's width at its minimum.
+        // One or two names sit side by side on the left, like the line colours they name; the grid would spread
+        // them over the card's two equal columns.
+        if root.data.legend.length > 0 && root.data.legend.length <= 2: HorizontalLayout {
+            alignment: start;
+            spacing: 16px;
+            vertical-stretch: 0;
+            for name[i] in root.data.legend: HorizontalLayout {
+                spacing: 6px;
+                Rectangle {
+                    width: 10px;
+                    height: 10px;
+                    y: 3px;
+                    background: root.colors[i];
+                }
+                Text { text: name; overflow: elide; }
+            }
+        }
+        if root.data.legend.length > 2: GridLayout {
+            spacing-horizontal: 10px;
+            vertical-stretch: 0;
+            for name[i] in root.data.legend: HorizontalLayout {
+                row: Math.floor(i / 2);
+                col: Math.mod(i, 2);
+                spacing: 6px;
+                Rectangle {
+                    width: 10px;
+                    height: 10px;
+                    y: 3px;
+                    background: root.colors[i];
+                }
+                Text { text: name; overflow: elide; }
+            }
+        }
+        Rectangle {
+            clip: true;
+            min-height: 60px;
+            vertical-stretch: 1;
+            if !root.ready: Text {
+                text: @tr("Collecting…");
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                color: Palette.foreground.with-alpha(0.6);
+            }
+            // Quarter lines, so "85%" reads at a glance without axis labels.
+            Path {
+                visible: root.ready;
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 59;
+                viewbox-height: 100;
+                fit: fill;
+                commands: "M 0 25 L 59 25 M 0 50 L 59 50 M 0 75 L 59 75";
+                stroke: Palette.foreground.with-alpha(0.07);
+                stroke-width: 1px;
+            }
+            if root.ready && root.data.fill != "": Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 59;
+                viewbox-height: 100;
+                fit: fill;
+                commands: root.data.fill;
+                fill: root.colors[0].with-alpha(0.16);
+            }
+            if root.ready && root.data.faint != "": Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 59;
+                viewbox-height: 100;
+                fit: fill;
+                commands: root.data.faint;
+                stroke: Palette.foreground.with-alpha(0.15);
+                stroke-width: 1px;
+            }
+            for p[i] in root.data.paths: Path {
+                visible: root.ready;
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 59;
+                viewbox-height: 100;
+                // The default (contain) keeps the 59:100 aspect and leaves the line small and centred.
+                fit: fill;
+                commands: p;
+                stroke: root.colors[i];
+                stroke-width: 1.5px;
+            }
+        }
+    }
+}
+
+component GraphsPage inherits Rectangle {
+    in property <bool> ready;
+    in property <[GraphData]> cards;
+
+    // Two cards a row, as many rows as there are cards (a disk and a GPU each add one); the page scrolls.
+    ScrollView {
+        VerticalLayout {
+            padding: 12px;
+            spacing: 12px;
+            alignment: start;
+            for row in Math.floor((root.cards.length + 1) / 2): HorizontalLayout {
+                spacing: 12px;
+                min-height: 220px;
+                max-height: 220px;
+                GraphCard { data: root.cards[row * 2]; ready: root.ready; }
+                // An odd last card keeps half the width instead of stretching over the row.
+                if row * 2 + 1 < root.cards.length: GraphCard { data: root.cards[row * 2 + 1]; ready: root.ready; }
+                if row * 2 + 1 >= root.cards.length: Rectangle {
+                    min-width: 200px;
+                    preferred-width: 0px;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+}
+
+export component Main inherits Window {
+    in property <string> version;
+    in-out property <bool> about-open: false;
+    in-out property <bool> settings-open: false;
+    in-out property <bool> cpu-whole-machine: false;
+    in-out property <bool> group-apps: true;
+    in-out property <int> language-index: 0;
+    callback language-changed(int);
+    // The tab; `in-out` so FASTPROCMAN_PAGE can open one directly (scripts/ui-snapshot.sh).
+    in-out property <int> page: 0;
+    in property <[ProcRow]> rows;
+    in property <string> selected-label;
+    in property <bool> selected-stopped;
+    in-out property <int> selected-row: -1;
+    in-out property <string> filter;
+    in-out property <bool> suspicious-only;
+    in-out property <bool> tree: false;
+    in property <string> count-text;
+    in property <string> status;
+    // Slowdown banner ("" = none): the message, whether it is already danger (red) and up to three culprits. A click
+    // on one selects it (Rust), and Delete then asks to end it.
+    in property <string> alert-text;
+    in property <bool> alert-danger;
+    in property <[string]> alert-items;
+    callback alert-clicked(int);
+    in-out property <int> interval-index: 0;
+    // The dialogs are in-out so FASTPROCMAN_PAGE can open them (scripts/ui-snapshot.sh).
+    in-out property <bool> confirm-open: false;
+    in-out property <bool> confirm-force: false;
+    in-out property <string> confirm-label;
+    // Copied with the label, for the same reason: the table is rebuilt every tick.
+    in-out property <image> confirm-icon;
+    // Set by the Processes page when its context menu opens; see `ProcessesPage.menu-label`.
+    in-out property <string> menu-label;
+    in-out property <bool> properties-open: false;
+    in property <PropData> prop-data;
+    in property <bool> graphs-ready;
+    in property <[GraphData]> graphs;
+    in property <[ServiceRow]> services;
+    in-out property <int> svc-selected-row: -1;
+    in-out property <string> svc-filter;
+    in property <string> svc-selected-label;
+    // The selected service is running (Stop is offered) as opposed to stopped or failed (Start).
+    in property <bool> svc-selected-active;
+    in property <string> svc-count-text;
+    // What Confirm is for: 0 a process, 1 stop a service, 2 restart a service.
+    in-out property <int> confirm-service: 0;
+    callback svc-filter-changed(string);
+    callback svc-status-changed(int);
+    callback svc-startup-changed(int);
+    callback svc-row-selected(int);
+    callback svc-sort-ascending(int);
+    callback svc-sort-descending(int);
+    // Rust lists services only while the tab is shown.
+    callback services-shown(bool);
+    // The Graphs cards are built only while their tab is shown: Rust builds them now.
+    callback page-changed();
+    // Stop and restart run after the confirmation, like end and kill.
+    callback start-service();
+    callback stop-service();
+    callback restart-service();
+    callback filter-changed(string);
+    callback suspicious-toggled(bool);
+    callback tree-toggled(bool);
+    callback toggle-expand(int);
+    callback expand-all();
+    callback collapse-all();
+    callback row-selected(int);
+    callback sort-ascending(int);
+    callback sort-descending(int);
+    // Run after the confirmation (end, kill) or straight from the menu.
+    callback end();
+    callback kill();
+    callback suspend();
+    callback resume();
+    callback renice(int);
+    callback properties();
+    callback type-char(string) -> bool;
+    callback interval-changed(int);
+    callback cpu-scope-changed(bool);
+    callback group-apps-changed(bool);
+    callback open-website();
+    public function focus-filter(cursor: int) { procs.focus-filter(cursor); }
+    public function svc-focus-filter(cursor: int) { svcs.focus-filter(cursor); }
+    public function show-menu() { procs.show-menu(); }
+    public function reveal(row: int) { procs.reveal(row); }
+    // The label is copied now: the sampler keeps updating `selected-label`, and the process may exit while asking.
+    function ask(force: bool) {
+        // Nothing selected (the row just left the list): nothing to ask about.
+        if root.selected-label != "" {
+            root.confirm-service = 0;
+            root.confirm-force = force;
+            root.confirm-label = root.selected-label;
+            if root.selected-row >= 0 && root.selected-row < root.rows.length {
+                root.confirm-icon = root.rows[root.selected-row].icon;
+            }
+            root.confirm-open = true;
+        }
+    }
+    function ask-service(kind: int) {
+        if root.svc-selected-label != "" {
+            root.confirm-service = kind;
+            root.confirm-label = root.svc-selected-label;
+            root.confirm-open = true;
+        }
+    }
+    // The only caller of end, kill, stop-service and restart-service: Enter in the dialog and its button.
+    function confirm-accept() {
+        root.confirm-open = false;
+        if root.confirm-service == 1 {
+            root.stop-service();
+        } else if root.confirm-service == 2 {
+            root.restart-service();
+        } else if root.confirm-force {
+            root.kill();
+        } else {
+            root.end();
+        }
+    }
+    title: "FastProcMan";
+    min-width: 640px;
+    min-height: 400px;
+
+    // Switching tabs hides the page that held the focus (the filter box or the table), and Slint then drops the focus
+    // altogether: no key reached anything until the next click. The window scope is always visible, so it takes it.
+    // Going back to the processes keeps it there; typing then still reaches the filter through `shortcuts`.
+    changed page => {
+        if root.page != 0 {
+            shortcuts.focus();
+        }
+        root.services-shown(root.page == 2);
+        root.page-changed();
+    }
+
+    // Every shortcut lives here, so it works wherever the focus is (table, filter box, a tab header, the Refresh box).
+    // A click on anything that cannot take focus lands on this scope, which gets the keyboard back.
+    shortcuts := FocusScope {
+        width: root.width;
+        height: root.height;
+
+        // Runs before the focused item sees the key. An open dialog answers Enter and Escape here and swallows the
+        // rest: a closing popup menu gives the focus back to the table, so the dialog cannot rely on holding it.
+        capture-key-pressed(event) => {
+            if root.confirm-open {
+                if event.text == Key.Escape {
+                    root.confirm-open = false;
+                } else if event.text == Key.Return {
+                    root.confirm-accept();
+                }
+                return accept;
+            }
+            if root.properties-open {
+                if event.text == Key.Escape { root.properties-open = false; }
+                return accept;
+            }
+            if root.settings-open {
+                if event.text == Key.Escape {
+                    root.settings-open = false;
+                } else if event.text == " " {
+                    root.cpu-whole-machine = !root.cpu-whole-machine;
+                    root.cpu-scope-changed(root.cpu-whole-machine);
+                }
+                return accept;
+            }
+            if root.about-open {
+                if event.text == Key.Escape { root.about-open = false; }
+                return accept;
+            }
+            // Here, not in `key-pressed`: a focused box or combo would use Tab for focus traversal first.
+            if event.modifiers.control && (event.text == Key.Tab || event.text == Key.Backtab) {
+                root.page = Math.mod(root.page + (event.text == Key.Backtab || event.modifiers.shift ? 2 : 1), 3);
+                return accept;
+            }
+            return reject;
+        }
+
+        // Keys the focused item did not use. The filter box keeps its own typing, Delete and Ctrl+Z.
+        key-pressed(event) => {
+            // Escape clears what was typed.
+            if event.text == Key.Escape {
+                if root.page == 2 && root.svc-filter != "" {
+                    svcs.clear-filter();
+                    return accept;
+                }
+                if root.page != 2 && root.filter != "" {
+                    procs.clear-filter();
+                    return accept;
+                }
+                return reject;
+            }
+            if event.modifiers.control && event.text == "," {
+                root.settings-open = true;
+                return accept;
+            }
+            if event.modifiers.control && event.text == "f" {
+                if root.page == 2 {
+                    svcs.focus-search();
+                } else {
+                    root.page = 0;
+                    procs.focus-search();
+                }
+                return accept;
+            }
+            // Typing starts filtering on the Processes and Services tabs; Rust routes it by `page`.
+            if root.page != 1 && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta
+                && root.type-char(event.text) {
+                return accept;
+            }
+            // The rest is about the process list.
+            if root.page != 0 {
+                return reject;
+            }
+            if event.text == Key.Delete && root.selected-label != "" {
+                root.ask(event.modifiers.shift);
+                return accept;
+            }
+            if event.text == Key.UpArrow {
+                procs.move-selection(-1);
+                return accept;
+            }
+            if event.text == Key.DownArrow {
+                procs.move-selection(1);
+                return accept;
+            }
+            if event.text == Key.PageUp || event.text == Key.PageDown {
+                procs.move-page(event.text == Key.PageUp ? -1 : 1);
+                return accept;
+            }
+            // The filter box keeps Left and Right for its cursor, so these act only once a row has been clicked.
+            if event.text == Key.LeftArrow || event.text == Key.RightArrow {
+                procs.expand-selected(event.text == Key.RightArrow);
+                return accept;
+            }
+            if event.text == Key.Return && event.modifiers.alt && root.selected-label != "" {
+                root.properties();
+                return accept;
+            }
+            if event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
+                procs.show-menu();
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            // Slowdown banner, on every tab. Amber while there is still room, red once the system is stalling or
+            // nearly out of memory. `alignment: start` on the inner layout: a short row must not stretch.
+            if root.alert-text != "": Rectangle {
+                property <color> tint: root.alert-danger ? #d04040 : #e0a030;
+                background: self.tint.with-alpha(0.14);
+                // A stripe on the left instead of a box around the whole banner: the same signal, less like an error dialog.
+                Rectangle {
+                    x: 0px;
+                    width: 4px;
+                    height: parent.height;
+                    background: parent.tint;
+                }
+                VerticalLayout {
+                    padding: 8px;
+                    padding-left: 12px;
+                    spacing: 6px;
+                    alignment: start;
+                    Text {
+                        text: root.alert-text;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                    }
+                    // Built only with buttons: an empty layout would take the banner's spare height.
+                    if root.alert-items.length > 0: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for item[i] in root.alert-items: Button {
+                            text: item;
+                            clicked => {
+                                root.alert-clicked(i);
+                                shortcuts.focus();
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                // Our own tab bar (Fluent's stretches three tabs over the whole width). The pages below all stay
+                // alive and are only hidden: a page made with `if` would lose its scroll position and sort arrows.
+                Rectangle {
+                    height: 32px;
+                    HorizontalLayout {
+                        padding-right: 34px;
+                        for title[i] in [@tr("Processes"), @tr("Graphs"), @tr("Services")]: TabItem {
+                            title: title;
+                            active: root.page == i;
+                            clicked => { root.page = i; }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Palette.border;
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    procs := ProcessesPage {
+                        width: parent.width;
+                        height: parent.height;
+                        visible: root.page == 0;
+                        rows: root.rows;
+                        selected-label: root.selected-label;
+                        menu-label <=> root.menu-label;
+                        selected-stopped: root.selected-stopped;
+                        selected-row <=> root.selected-row;
+                        filter <=> root.filter;
+                        suspicious-only <=> root.suspicious-only;
+                        tree <=> root.tree;
+                        filter-changed(t) => { root.filter-changed(t); }
+                        suspicious-toggled(b) => { root.suspicious-toggled(b); }
+                        toggle-expand(r) => { root.toggle-expand(r); }
+                        // A click on a row leaves the keyboard with the window scope, where every shortcut lives.
+                        focus-list => { shortcuts.focus(); }
+                        row-selected(r) => { root.row-selected(r); }
+                        sort-ascending(c) => { root.sort-ascending(c); }
+                        sort-descending(c) => { root.sort-descending(c); }
+                        end => { root.ask(false); }
+                        kill => { root.ask(true); }
+                        suspend => { root.suspend(); }
+                        resume => { root.resume(); }
+                        renice(n) => { root.renice(n); }
+                        properties => { root.properties(); }
+                    }
+                    GraphsPage {
+                        width: parent.width;
+                        height: parent.height;
+                        visible: root.page == 1;
+                        ready: root.graphs-ready;
+                        cards: root.graphs;
+                    }
+                    svcs := ServicesPage {
+                        width: parent.width;
+                        height: parent.height;
+                        visible: root.page == 2;
+                        rows: root.services;
+                        selected-row <=> root.svc-selected-row;
+                        filter <=> root.svc-filter;
+                        filter-changed(t) => { root.svc-filter-changed(t); }
+                        status-changed(i) => { root.svc-status-changed(i); }
+                        startup-changed(i) => { root.svc-startup-changed(i); }
+                        row-selected(r) => { root.svc-row-selected(r); }
+                        sort-ascending(c) => { root.svc-sort-ascending(c); }
+                        sort-descending(c) => { root.svc-sort-descending(c); }
+                        focus-list => { shortcuts.focus(); }
+                    }
+                }
+            }
+            // On the right end of the tab headers, on every tab. A fixed square (see the old note: `width: self.height`
+            // stretches the row); the icon is a Path on top, which takes no input, so clicks reach the button.
+            Rectangle {
+                x: parent.width - self.width - 2px;
+                y: 2px;
+                width: 28px;
+                height: 28px;
+                Button {
+                    width: 100%;
+                    height: 100%;
+                    accessible-label: @tr("Settings");
+                    clicked => {
+                        root.settings-open = true;
+                    }
+                }
+                Path {
+                    width: 14px;
+                    height: 12px;
+                    viewbox-width: 16;
+                    viewbox-height: 14;
+                    commands: "M 1 1 L 15 1 M 1 7 L 15 7 M 1 13 L 15 13";
+                    stroke: Palette.foreground;
+                    stroke-width: 2px;
+                    stroke-line-cap: round;
+                }
+            }
+            }
+            HorizontalLayout {
+                padding: 8px;
+                // Tight: with the tree controls the bar must still fit 640 px in the longest language (pt_BR).
+                spacing: 8px;
+                Text { text: root.page == 2 ? root.svc-count-text : root.count-text; vertical-alignment: center; }
+                if root.page == 2: Button {
+                    text: @tr("Start");
+                    enabled: root.svc-selected-label != "" && !root.svc-selected-active;
+                    clicked => {
+                        root.start-service();
+                        shortcuts.focus();
+                    }
+                }
+                if root.page == 2: Button {
+                    text: @tr("Stop");
+                    enabled: root.svc-selected-active;
+                    clicked => {
+                        root.ask-service(1);
+                        shortcuts.focus();
+                    }
+                }
+                if root.page == 2: Button {
+                    text: @tr("Restart");
+                    enabled: root.svc-selected-label != "";
+                    clicked => {
+                        root.ask-service(2);
+                        shortcuts.focus();
+                    }
+                }
+                // The tree controls are here and not in the filter row, which has no room for them at the 640 px
+                // minimum width. The switch is on the Processes tab only; the buttons only in tree mode. After a click
+                // the keyboard goes back to the window scope, so Left/Right and Delete work at once and a focused
+                // control does not keep Space.
+                if root.page == 0: Text { text: @tr("Tree"); vertical-alignment: center; }
+                if root.page == 0: Switch {
+                    checked <=> root.tree;
+                    toggled => {
+                        root.tree-toggled(self.checked);
+                        shortcuts.focus();
+                    }
+                }
+                if root.tree && root.page == 0: Button {
+                    text: @tr("Expand all");
+                    clicked => {
+                        root.expand-all();
+                        shortcuts.focus();
+                    }
+                }
+                if root.tree && root.page == 0: Button {
+                    text: @tr("Collapse all");
+                    clicked => {
+                        root.collapse-all();
+                        shortcuts.focus();
+                    }
+                }
+                // Same path as Delete: `ask` opens Confirm, which is the only way to end a process. Not in tree mode:
+                // with Expand/Collapse the bar overflows 640 px in pt_BR and pushes the Refresh box out of the window.
+                if !root.tree && root.page == 0: Button {
+                    text: @tr("Quit…");
+                    enabled: root.selected-label != "";
+                    clicked => {
+                        root.ask(false);
+                        shortcuts.focus();
+                    }
+                }
+                Text {
+                    text: root.status;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text { text: @tr("Refresh"); vertical-alignment: center; }
+                ComboBox {
+                    width: 80px;
+                    model: ["1 s", "2 s", "5 s"];
+                    current-index <=> root.interval-index;
+                    selected(_) => { root.interval-changed(self.current-index); }
+                }
+            }
+        }
+    }
+
+    // Last children, outside the layout, so they draw on top.
+    if root.about-open: About {
+        width: root.width;
+        height: root.height;
+        version: root.version;
+        // About took the focus; without this the shortcuts do nothing until the next click.
+        dismiss => { root.about-open = false; shortcuts.focus(); }
+        open-website => { root.open-website(); }
+    }
+
+    if root.settings-open: Settings {
+        width: root.width;
+        height: root.height;
+        cpu-whole-machine <=> root.cpu-whole-machine;
+        group-apps <=> root.group-apps;
+        language-index <=> root.language-index;
+        language-changed(i) => { root.language-changed(i); }
+        dismiss => { root.settings-open = false; shortcuts.focus(); }
+        // Close Settings first: its branch in `capture-key-pressed` runs before About's, so Escape would miss About.
+        about => { root.settings-open = false; root.about-open = true; }
+        cpu-scope-changed(b) => { root.cpu-scope-changed(b); }
+        group-apps-changed(b) => { root.group-apps-changed(b); }
+    }
+
+    if root.confirm-open: Confirm {
+        width: root.width;
+        height: root.height;
+        label: root.confirm-label;
+        icon: root.confirm-icon;
+        force: root.confirm-force;
+        service: root.confirm-service;
+        dismiss => { root.confirm-open = false; }
+        accepted => { root.confirm-accept(); }
+    }
+
+    if root.properties-open: Properties {
+        width: root.width;
+        height: root.height;
+        data: root.prop-data;
+        dismiss => { root.properties-open = false; }
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "enabledPlugins": {
+    "slint@slint": true,
+    "frontend-design@anthropic-plugin-directory": true
+  },
+  "extraKnownMarketplaces": {
+    "slint": {
+      "source": {
+        "source": "github",
+        "repo": "slint-ui/ai-plugins"
+      }
+    }
+  }
+}
