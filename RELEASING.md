@@ -15,6 +15,7 @@ Releases are Git tags. CI builds the AppImage (+ `.zsync`) and the Flatpak, publ
     git tag v0.2.0 -m "FastProcMan 0.2.0"
     git push origin v0.2.0
     ```
+
 5. The `Flatpak` workflow checks that the tag equals the `Cargo.toml` version and that the metainfo has the `<release>` entry, builds the bundle, and publishes `*-x86_64.flatpak` on the release page.
     - The `AppImage` workflow adds `*-x86_64.AppImage`, and its `.zsync` (delta updates) to the same release (it waits up to 30 min for the release to exist).
 6. Smoke-test the downloaded AppImage on a clean user, and the Flatpak: `flatpak update` from the previous version should offer the new one.
@@ -53,3 +54,5 @@ Automatically check for virus on deploy, or delete `virustotal.yml`.
 - Settings → Secrets and variables → Actions → New repository secret
 - `Name`: `VIRUSTOTAL_API_KEY`
 - `Secret`: Your Virus total api key
+- Some antivirus may identify it as trojan, so you need to send the file to reanalyze:
+    - [Microsoft Windows Defender](https://www.microsoft.com/en-us/wdsi/filesubmission)

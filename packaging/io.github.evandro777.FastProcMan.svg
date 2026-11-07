@@ -1,9 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="24" fill="#1c2739"/>
-  <!-- A faint grid, like the graphs page. Solid colours only: ImageMagick (which makes the PNG) ignores gradients and opacity. -->
-  <path d="M20 44H108M20 68H108M20 92H108" stroke="#2c3a52" stroke-width="1.5"/>
-  <!-- The second series (orange, as in the app) behind the main one. -->
-  <path d="M20 96 L44 84 L64 92 L88 76 L108 82" fill="none" stroke="#e8a33d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M18 78 L40 78 L52 52 L66 100 L80 36 L92 70 L110 70" fill="none" stroke="#6be585" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="110" cy="70" r="5.5" fill="#6be585"/>
+  <!-- Fast family icon: flat tile with a stepped top-right corner, white symbol leaning 8 degrees. Solid colours only (ImageMagick makes the PNG). -->
+  <path d="M26 0H64V14H92V28H128V102A26 26 0 0 1 102 128H26A26 26 0 0 1 0 102V26A26 26 0 0 1 26 0Z" fill="#1f9d63"/>
+  <g transform="translate(62 68) skewX(-8) translate(-62 -68)" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M28 72H44L54 46L68 94L78 66H96"/>
+  </g>
 </svg>
