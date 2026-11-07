@@ -20,7 +20,7 @@ public key into `fastprocman.flatpakrepo` so users' Flatpak knows which key to t
 
 You only do this once per project (or again if the key is ever lost or leaked, see "Replacing the key").
 
-### 1. Make the key pair & 
+### 1. Make the key pair
 
 Use a throwaway key folder so your own GPG keys are not touched.
 

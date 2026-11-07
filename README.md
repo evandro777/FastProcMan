@@ -9,17 +9,13 @@
 
 Light and fast Linux process manager built with Rust + [Slint](https://slint.dev) (software renderer, no GL). About 30 MB of RAM (about 50 MB with an NVIDIA card, whose driver library is loaded) and about 3% of one core at the default 1 s refresh.
 
-Landing page: <https://evandro777.github.io/FastProcMan/> (published by the Flatpak workflow on the first tag).
+Page: <https://evandro777.github.io/FastProcMan/>
 
 ![The process list with the low-memory warning banner](docs/screenshots/main.png)
-
-![The process tree, grouped by application](docs/screenshots/tree.png)
 
 ![CPU, memory, network and GPU graphs](docs/screenshots/graphs.png)
 
 ![The systemd services list](docs/screenshots/services.png)
-
-(Screenshots use made-up data.)
 
 ## Features
 
@@ -37,9 +33,7 @@ Every feature in detail, with the shortcuts: [`docs/FEATURES.md`](docs/FEATURES.
 
 ### Flatpak
 
-> **Warning: this Flatpak is not sandboxed.** A process manager inside a sandbox only sees its own processes, so the app has the permission `--talk-name=org.freedesktop.Flatpak` and uses it to start itself on the host (`flatpak-spawn --host`), like Mission Center (`io.missioncenter.MissionCenter`) does. From then on it can do anything you can do. It runs with the Flatpak runtime's own libraries, so what you install on the host does not matter. Check it with `flatpak info --show-permissions io.github.evandro777.FastProcMan`. If you do not want that, use the AppImage, or remove the permission with `flatpak override --user --nosession-bus-talk-name=org.freedesktop.Flatpak io.github.evandro777.FastProcMan` (the app then runs inside the sandbox, shows only its own processes and says so in the status line).
->
-> Not tested on a real desktop yet: polkit (the password prompt for other users' processes) may behave differently when the app is started this way. It is also the reason this is not on Flathub, which does not accept the permission.
+> **Warning: this Flatpak is not sandboxed.** A process manager inside a sandbox only sees its own processes, so the app has the permission `--talk-name=org.freedesktop.Flatpak` and uses it to start itself on the host (`flatpak-spawn --host`), like Mission Center (Flatpak) does. It can do anything you can do. Check it with `flatpak info --show-permissions io.github.evandro777.FastProcMan`. If you do not want that, use the AppImage, or remove the permission with `flatpak override --user --nosession-bus-talk-name=org.freedesktop.Flatpak io.github.evandro777.FastProcMan` (but the app then runs inside the sandbox, shows only its own processes and says so in the status line).
 
 #### Install from file (no updates)
 
