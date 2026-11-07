@@ -29,6 +29,18 @@ Page: <https://evandro777.github.io/FastProcMan/>
 
 Every feature in detail, with the shortcuts: [`docs/FEATURES.md`](docs/FEATURES.md).
 
+## Performance
+
+Each app on its process list, at its default settings, after 10 s of settling. Memory is PSS and CPU is the CPU time used over 60 s, both summed over the app's whole process tree. Median of 3 runs.
+
+| App                              | Startup    | Memory (PSS) | Memory (RSS) | CPU (% of one core) | Processes |
+|----------------------------------|-----------:|-------------:|-------------:|--------------------:|----------:|
+| **FastProcMan** 0.1.1 (AppImage) | **139 ms** | **42 MB**    | **51 MB**    | **2.7%**            | 1         |
+| GNOME System Monitor 46.0        | 429 ms     | 117 MB       | 195 MB       | 4.8%                | 1         |
+| Mission Center 1.2.0 (AppImage)  | 735 ms     | 281 MB       | 315 MB       | 17.0%               | 4         |
+
+Measured on Linux Mint (Cinnamon, X11), 16 threads, an NVIDIA GPU (which adds about 20 MB to FastProcMan, see above) and about 550 running processes. GNOME System Monitor refreshes every 3 s by default, FastProcMan every 1 s, so the CPU gap is wider at equal refresh rates. Mission Center's refresh rate was not checked. One machine, one desktop: treat the numbers as a rough guide.
+
 ## Install
 
 ### Flatpak
