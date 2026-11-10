@@ -911,6 +911,12 @@ component ProcessesPage inherits Rectangle {
                         }
                         return accept;
                     }
+                    // Left/Right collapse and expand the tree row, as in the list, unless there is text whose cursor
+                    // they should move (they work once the arrows picked a row, or while the box is empty).
+                    if (event.text == Key.LeftArrow || event.text == Key.RightArrow) && (root.in-list || root.filter == "") {
+                        root.expand-selected(event.text == Key.RightArrow);
+                        return accept;
+                    }
                     if event.text == Key.Return && event.modifiers.alt && root.selected-label != "" {
                         root.properties();
                         return accept;

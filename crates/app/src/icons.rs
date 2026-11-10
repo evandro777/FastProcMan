@@ -7,7 +7,7 @@
 //! case for daemons, would otherwise cost thousands of `stat` calls), and sizes are tried smallest first because
 //! the slot is 16 px.
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::mpsc,
@@ -71,6 +71,12 @@ struct Index {
     /// unrelated processes into one group: hidden launchers (`NoDisplay`) are left out, and a key claimed by two
     /// launchers with different names (a shared `Exec` such as java or electron) is `None`.
     apps: HashMap<String, Option<String>>,
+    /// Folder of a launcher's real program -> the launcher's `Name=` and `Icon=`, same `None` rule as `apps`. Only the
+    /// fallback of `app` and `find`, for processes not named like the launcher (Chrome: `google-chrome` execs
+    /// `chrome`; Cisco's helpers sit next to `vpnui`).
+    dirs: HashMap<PathBuf, Option<(String, String)>>,
+    /// `PATH` folders, which hold many unrelated programs and so never name an app.
+    path: Vec<PathBuf>,
 }
 
 impl Index {
@@ -103,11 +109,18 @@ impl Index {
             .collect();
         theme_dirs.sort_by_key(|t| (!t.ends_with("hicolor"), t.clone()));
         theme_dirs.dedup();
-        Self::build(&desktop, &theme_dirs, Path::new("/usr/share/pixmaps"))
+        let path: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
+        Self::build(&desktop, &theme_dirs, Path::new("/usr/share/pixmaps"), path)
     }
 
-    fn build(desktop: &[PathBuf], themes: &[PathBuf], pixmaps: &Path) -> Self {
-        let mut index = Self::default();
+    fn build(desktop: &[PathBuf], themes: &[PathBuf], pixmaps: &Path, path: Vec<PathBuf>) -> Self {
+        let mut index = Self {
+            path,
+            ..Self::default()
+        };
+        // A launcher file name seen in an earlier folder shadows the same name in a later one (XDG: the user's copy
+        // replaces the system's), so it must not add a second `Name=` to the same keys.
+        let mut seen = HashSet::new();
         for dir in desktop {
             let mut files: Vec<PathBuf> = fs::read_dir(dir)
                 .into_iter()
@@ -119,6 +132,9 @@ impl Index {
             // read_dir order is arbitrary; sorted so the same icon is picked every run.
             files.sort();
             for f in files {
+                if !seen.insert(f.file_name().map(ToOwned::to_owned)) {
+                    continue;
+                }
                 if let Ok(text) = fs::read_to_string(&f) {
                     index.add_launcher(&f, &text);
                 }
@@ -137,6 +153,12 @@ impl Index {
         let Some(icon) = entry.icon.filter(|i| !i.is_empty()) else {
             return;
         };
+        if let (Some(n), Some(dir)) = (&name, entry.bare.as_deref().and_then(|b| self.program_dir(b))) {
+            let slot = self.dirs.entry(dir).or_insert_with(|| Some((n.clone(), icon.clone())));
+            if slot.as_ref().is_some_and(|(old, _)| old != n) {
+                *slot = None;
+            }
+        }
         let mut strong = vec![];
         strong.extend(entry.program);
         strong.extend(entry.wm_class);
@@ -158,6 +180,18 @@ impl Index {
             }
             self.strong.entry(k).or_insert_with(|| icon.clone());
         }
+    }
+
+    /// The folder a launcher's program really lives in (symlinks followed, a bare name searched in `PATH`), unless it
+    /// is a folder shared by unrelated programs.
+    fn program_dir(&self, program: &str) -> Option<PathBuf> {
+        let found = if program.contains('/') {
+            PathBuf::from(program)
+        } else {
+            self.path.iter().map(|d| d.join(program)).find(|p| p.is_file())?
+        };
+        let dir = fs::canonicalize(found).ok()?.parent()?.to_path_buf();
+        (!shared_dir(&dir, &self.path)).then_some(dir)
     }
 
     /// Layouts differ (`48x48/apps`, `48/apps`, `apps/48`, `scalable/apps`); only `apps` holds program icons.
@@ -225,7 +259,17 @@ impl Index {
             .as_deref()
             .filter(|e| e.starts_with("/app/"))
             .and_then(|_| flatpak_id(r.pid));
-        let names: Vec<String> = flatpak
+        // An AppImage's real process runs from `/tmp/.mount_*`; its launcher runs the `.appimage` file.
+        let appimage = r
+            .exe
+            .as_deref()
+            .filter(|e| e.starts_with("/tmp/.mount_"))
+            .and_then(|e| appimage_from_environ(&fs::read(format!("/proc/{}/environ", r.pid)).ok()?, e));
+        Self::names_from(r, flatpak.or(appimage))
+    }
+
+    fn names_from(r: &Request, lead: Option<String>) -> Vec<String> {
+        let names: Vec<String> = lead
             .into_iter()
             .chain([Self::base(r).to_string(), r.name.clone()])
             .filter(|n| !n.is_empty())
@@ -241,20 +285,32 @@ impl Index {
 
     /// The application a process belongs to, from a visible launcher only (never the theme or pixmaps guesses).
     fn app(&self, r: &Request) -> Option<String> {
-        Self::names(r).iter().find_map(|n| self.apps.get(n)?.clone())
+        Self::names(r)
+            .iter()
+            .find_map(|n| self.apps.get(n)?.clone())
+            // Only when no name matched, and only the exe's own folder: `chrome` is run by `google-chrome`.
+            .or_else(|| self.in_folder(r).map(|(name, _)| name))
+    }
+
+    /// The launcher whose program lives in the process's own folder (see `dirs`): its name and icon.
+    fn in_folder(&self, r: &Request) -> Option<(String, String)> {
+        self.dirs.get(Path::new(r.exe.as_deref()?).parent()?)?.clone()
     }
 
     fn find(&self, r: &Request) -> Option<PathBuf> {
         let base = Self::base(r);
         let names = Self::names(r);
         let launcher = |map: &HashMap<String, String>| names.iter().find_map(|n| self.icon_file(map.get(n)?));
-        launcher(&self.strong).or_else(|| launcher(&self.weak)).or_else(|| {
-            // No launcher: the program may still have a theme icon of its own name.
-            [base, r.name.as_str()]
-                .into_iter()
-                .chain(names.iter().map(String::as_str))
-                .find_map(|n| self.icon_file(n))
-        })
+        launcher(&self.strong)
+            .or_else(|| self.in_folder(r).and_then(|(_, icon)| self.icon_file(&icon)))
+            .or_else(|| launcher(&self.weak))
+            .or_else(|| {
+                // No launcher: the program may still have a theme icon of its own name.
+                [base, r.name.as_str()]
+                    .into_iter()
+                    .chain(names.iter().map(String::as_str))
+                    .find_map(|n| self.icon_file(n))
+            })
     }
 }
 
@@ -272,6 +328,23 @@ fn flatpak_id(pid: u32) -> Option<String> {
     text.lines().find_map(|l| l.strip_prefix("name=")).map(str::to_string)
 }
 
+/// The `.appimage` file an AppImage process came from: `APPIMAGE` in its environment, trusted only when the exe is
+/// under that process's own `APPDIR` (an unrelated child may inherit the variables). The caller reads `environ`
+/// only for exes under `/tmp/.mount_`.
+fn appimage_from_environ(environ: &[u8], exe: &str) -> Option<String> {
+    let var = |key: &str| {
+        environ
+            .split(|b| *b == 0)
+            .find_map(|kv| kv.strip_prefix(key.as_bytes())?.strip_prefix(b"="))
+            .map(|v| String::from_utf8_lossy(v).into_owned())
+    };
+    let (image, dir) = (var("APPIMAGE")?, var("APPDIR")?);
+    let inside = exe.strip_prefix(dir.as_str()).is_some_and(|rest| rest.starts_with('/'));
+    inside
+        .then(|| image.rsplit('/').next().map(str::to_lowercase))
+        .flatten()
+}
+
 #[derive(Default, Debug, PartialEq)]
 struct Launcher {
     icon: Option<String>,
@@ -281,6 +354,9 @@ struct Launcher {
     name: Option<String>,
     /// `NoDisplay=true` or `Hidden=true`: not an application the user runs.
     hidden: bool,
+    /// The program as written, only when `Exec=` has no arguments but field codes (`%U`): a launcher with more
+    /// (`--app-id=`, `--incognito`, `--writer`) is a variant of the app, so it must not speak for the folder.
+    bare: Option<String>,
 }
 
 /// Only the `[Desktop Entry]` group: its `[Desktop Action ...]` groups have their own `Icon=` and `Exec=`.
@@ -294,7 +370,10 @@ fn parse_launcher(text: &str) -> Launcher {
         } else if inside && let Some((k, v)) = line.split_once('=') {
             match k {
                 "Icon" => out.icon = Some(v.trim().to_string()),
-                "Exec" => out.program = program_of(v),
+                "Exec" => {
+                    out.program = program_of(v);
+                    out.bare = bare_program(v);
+                }
                 "StartupWMClass" => out.wm_class = Some(v.trim().to_lowercase()),
                 "Name" => out.name = Some(v.trim().to_string()),
                 "NoDisplay" | "Hidden" => out.hidden |= v.trim() == "true",
@@ -318,6 +397,47 @@ fn program_of(exec: &str) -> Option<String> {
         .then_some(base)
 }
 
+/// The program of an `Exec=` line when nothing follows it but field codes (see `Launcher::bare`). `env VAR=x` is
+/// looked past, like `program_of`; the same wrappers give none.
+fn bare_program(exec: &str) -> Option<String> {
+    let mut words = exec.split_whitespace().peekable();
+    if words.peek() == Some(&"env") {
+        words.next();
+        while words.peek().is_some_and(|w| w.contains('=')) {
+            words.next();
+        }
+    }
+    let first = words.next()?.trim_matches('"');
+    program_of(first)?;
+    words.all(|w| w.starts_with('%')).then(|| first.to_string())
+}
+
+/// Folders that hold many unrelated programs, so they can't name one app: `PATH` entries, the library roots (also
+/// the multiarch ones), and anything at most one level below a home folder (`~/AppImages`).
+fn shared_dir(dir: &Path, path: &[PathBuf]) -> bool {
+    const ROOTS: [&str; 11] = [
+        "/",
+        "/usr",
+        "/opt",
+        "/usr/lib",
+        "/usr/lib32",
+        "/usr/lib64",
+        "/usr/libexec",
+        "/usr/local",
+        "/usr/local/lib",
+        "/usr/share",
+        "/usr/local/share",
+    ];
+    let multiarch = dir.parent() == Some(Path::new("/usr/lib"))
+        && dir
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().contains("-linux-gnu"));
+    path.iter().any(|p| p == dir)
+        || ROOTS.iter().any(|r| dir == Path::new(r))
+        || multiarch
+        || (dir.starts_with("/home") && dir.components().count() <= 4)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,8 +454,144 @@ mod tests {
                 wm_class: Some("fooapp".into()),
                 name: Some("Foo".into()),
                 hidden: false,
+                bare: Some("/opt/Foo/Foo-Bin".into()),
             }
         );
+    }
+
+    #[test]
+    fn an_appimage_process_is_named_after_its_file() {
+        let env = b"HOME=/h\0APPIMAGE=/h/AppImages/SpotiFast.appimage\0APPDIR=/tmp/.mount_spotifX\0";
+        let exe = "/tmp/.mount_spotifX/usr/bin/spotifast";
+        assert_eq!(appimage_from_environ(env, exe), Some("spotifast.appimage".into()));
+        // Not under its own APPDIR (an inherited variable), a sibling folder with the same prefix, or no variables.
+        assert_eq!(appimage_from_environ(env, "/usr/bin/other"), None);
+        assert_eq!(appimage_from_environ(env, "/tmp/.mount_spotifXY/usr/bin/x"), None);
+        assert_eq!(appimage_from_environ(b"HOME=/h\0", exe), None);
+        assert_eq!(appimage_from_environ(b"APPIMAGE=/h/a.appimage\0", exe), None);
+    }
+
+    #[test]
+    fn the_appimage_launcher_wins_over_a_stale_one() {
+        let d = scratch("appimg");
+        fs::create_dir_all(d.join("apps")).unwrap();
+        let real = d.join("icon-file");
+        touch(&real);
+        let w = |f: &str, t: String| fs::write(d.join("apps").join(f), t).unwrap();
+        // The stale launcher sorts first and its icon does not exist.
+        w(
+            "Spotifast.desktop",
+            "[Desktop Entry]\nName=Spotifast\nExec=flatpak run x.Spotifast\nIcon=x.Spotifast\n".into(),
+        );
+        w(
+            "spotifast.desktop",
+            format!(
+                "[Desktop Entry]\nName=Spotifast\nExec=env A=1 /h/AppImages/spotifast.appimage %u\nIcon={}\n",
+                real.display()
+            ),
+        );
+        let index = Index::build(&[d.join("apps")], &[], &d.join("pix"), vec![]);
+        let r = request("AppRun", Some("/tmp/.mount_spotifX/usr/bin/spotifast"));
+        let names = Index::names_from(&r, Some("spotifast.appimage".into()));
+        assert_eq!(names[0], "spotifast.appimage");
+        let icon = names.iter().find_map(|n| index.icon_file(index.strong.get(n)?));
+        assert_eq!(icon, Some(real));
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn only_a_bare_exec_speaks_for_its_folder() {
+        assert_eq!(bare_program("/opt/x/x %U"), Some("/opt/x/x".into()));
+        assert_eq!(bare_program("env A=1 x"), Some("x".into()));
+        assert_eq!(bare_program("/opt/x/x --app-id=1"), None);
+        assert_eq!(bare_program("/opt/x/x --incognito"), None);
+        assert_eq!(bare_program("flatpak run org.x.Y"), None);
+    }
+
+    #[test]
+    fn shared_folders_name_no_app() {
+        let path = vec![PathBuf::from("/usr/bin")];
+        for d in [
+            "/usr/bin",
+            "/opt",
+            "/usr/lib",
+            "/usr/lib/x86_64-linux-gnu",
+            "/home/me",
+            "/home/me/AppImages",
+        ] {
+            assert!(shared_dir(Path::new(d), &path), "{d}");
+        }
+        for d in [
+            "/opt/google/chrome",
+            "/usr/lib/libreoffice/program",
+            "/usr/share/code",
+            "/home/me/apps/foo",
+        ] {
+            assert!(!shared_dir(Path::new(d), &path), "{d}");
+        }
+    }
+
+    #[test]
+    fn app_falls_back_to_the_install_folder() {
+        let d = scratch("dirs");
+        let (apps, foo) = (d.join("apps"), d.join("opt/foo"));
+        fs::create_dir_all(&apps).unwrap();
+        fs::create_dir_all(&foo).unwrap();
+        fs::create_dir_all(d.join("bin")).unwrap();
+        fs::write(foo.join("foo-launch"), "").unwrap();
+        // `PATH` has a symlink to the wrapper, like /usr/bin/google-chrome-stable.
+        std::os::unix::fs::symlink(foo.join("foo-launch"), d.join("bin/foo-stable")).unwrap();
+        fs::write(d.join("bin/other"), "").unwrap();
+        let w = |f: &str, t: &str| fs::write(apps.join(f), t).unwrap();
+        w("foo.desktop", "[Desktop Entry]\nName=Foo\nExec=foo-stable %U\nIcon=a\n");
+        // A variant in the same folder does not blank it, and a bare launcher of a program in `PATH` names nothing.
+        w(
+            "meet.desktop",
+            &format!(
+                "[Desktop Entry]\nName=Meet\nExec={}/foo-launch --app-id=1\nIcon=a\n",
+                foo.display()
+            ),
+        );
+        w("other.desktop", "[Desktop Entry]\nName=Other\nExec=other\nIcon=a\n");
+        let index = Index::build(std::slice::from_ref(&apps), &[], &d.join("pix"), vec![d.join("bin")]);
+        let exe = |p: &str| request("real", Some(&d.join(p).to_string_lossy()));
+        assert_eq!(index.app(&exe("opt/foo/real")), Some("Foo".into()));
+        // The icon comes from the same launcher.
+        assert_eq!(index.in_folder(&exe("opt/foo/real")), Some(("Foo".into(), "a".into())));
+        // Exact folder only, and a name match still comes first.
+        assert_eq!(index.app(&exe("opt/foo/sub/real")), None);
+        assert_eq!(
+            index.app(&request("other", Some(&d.join("bin/other").to_string_lossy()))),
+            Some("Other".into())
+        );
+        assert_eq!(index.app(&request("x", Some(&d.join("bin/x").to_string_lossy()))), None);
+        // A second bare launcher with another name makes the folder ambiguous.
+        w(
+            "bar.desktop",
+            &format!(
+                "[Desktop Entry]\nName=Bar\nExec={}/foo-launch %U\nIcon=a\n",
+                foo.display()
+            ),
+        );
+        let index = Index::build(&[apps], &[], &d.join("pix"), vec![d.join("bin")]);
+        assert_eq!(index.app(&exe("opt/foo/real")), None);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn a_shadowed_launcher_adds_no_second_name() {
+        let d = scratch("shadow");
+        for (dir, name) in [("user", "Mine"), ("sys", "Theirs")] {
+            fs::create_dir_all(d.join(dir)).unwrap();
+            fs::write(
+                d.join(dir).join("g.desktop"),
+                format!("[Desktop Entry]\nName={name}\nExec=g\nIcon=a\n"),
+            )
+            .unwrap();
+        }
+        let index = Index::build(&[d.join("user"), d.join("sys")], &[], &d.join("pix"), vec![]);
+        assert_eq!(index.app(&request("g", None)), Some("Mine".into()));
+        let _ = fs::remove_dir_all(d);
     }
 
     /// Manual: `cargo test -p fastprocman live_apps -- --ignored --nocapture` lists the application of every process
@@ -358,7 +614,9 @@ mod tests {
                 pid,
             };
             if let Some(app) = index.app(&r) {
-                *seen.entry(app).or_default() += 1;
+                // An app that has a name but no icon is a launcher lookup that missed.
+                let tag = if index.find(&r).is_some() { "" } else { " (no icon)" };
+                *seen.entry(format!("{app}{tag}")).or_default() += 1;
             }
         }
         for (app, n) in seen {
@@ -385,7 +643,7 @@ mod tests {
         w("d1.desktop", "[Desktop Entry]\nName=One\nExec=java -jar 1\nIcon=a\n");
         w("d2.desktop", "[Desktop Entry]\nName=Two\nExec=java -jar 2\nIcon=a\n");
         touch(&d.join("icons/hicolor/48x48/apps/htop.png"));
-        let index = Index::build(&[d.join("apps")], &[d.join("icons/hicolor")], &d.join("pix"));
+        let index = Index::build(&[d.join("apps")], &[d.join("icons/hicolor")], &d.join("pix"), vec![]);
         let app = |n: &str| index.app(&request(n, None));
         assert_eq!(app("alpha"), Some("Alpha".into()));
         // A wrapper script's real program (`Exec=alpha` runs `alpha-bin`, as with Firefox).
@@ -461,7 +719,7 @@ mod tests {
         touch(&d.join("icons/hicolor/32/apps/htop.png"));
         touch(&d.join("pix/pixie.png"));
         let themes = [d.join("icons/hicolor"), d.join("icons/other")];
-        let index = Index::build(&[d.join("apps")], &themes, &d.join("pix"));
+        let index = Index::build(&[d.join("apps")], &themes, &d.join("pix"), vec![]);
 
         let ends = |r: Request, tail: &str| {
             let p = index.find(&r).unwrap_or_default();
@@ -491,7 +749,7 @@ mod tests {
         touch(&d.join("icons/hicolor/48x48/apps/tool.png"));
         touch(&d.join("real.png"));
         touch(&d.join("old.xpm"));
-        let index = Index::build(&[], &[d.join("icons/hicolor")], &d.join("pix"));
+        let index = Index::build(&[], &[d.join("icons/hicolor")], &d.join("pix"), vec![]);
         assert_eq!(
             index.icon_file(d.join("real.png").to_str().unwrap()),
             Some(d.join("real.png"))

@@ -68,6 +68,8 @@ struct State {
     /// is never trusted past the next refresh.
     shown: Vec<(u32, u64)>,
     selected: Option<(u32, u64, String)>,
+    /// Key of a selected tree group row (no process, so `selected` stays `None`); kept so a refresh does not drop it.
+    selected_group: Option<(u32, u64)>,
     /// The processes the slowdown banner names, in its order; a click on one selects it.
     alert: Vec<(u32, u64, String)>,
     /// `(pid, start)` the Properties dialog shows. Not the selection: that follows the table, this is fixed at open.
@@ -144,6 +146,7 @@ thread_local! {
         sys: SysStats::default(),
         shown: Vec::new(),
         selected: None,
+        selected_group: None,
         alert: Vec::new(),
         props: None,
         sort: (4, false),
@@ -468,14 +471,18 @@ impl State {
         let followed = self.selected.as_ref().and_then(|(pid, start, _)| {
             tree::follow_selection(&shown, &self.procs, &parent, (*pid, *start), self.tree && !filtering)
         });
-        let pos = followed.as_ref().map(|f| f.row);
+        let mut pos = followed.as_ref().map(|f| f.row);
         if let Some(a) = followed.and_then(|f| f.moved_to) {
             let p = &self.procs[a];
             self.selected = Some((p.pid, p.start, p.name.clone()));
         }
+        if self.selected.is_none() {
+            pos = self.selected_group.and_then(|g| shown.iter().position(|k| *k == g));
+        }
         self.shown = shown;
         if pos.is_none() {
             self.selected = None;
+            self.selected_group = None;
         }
         let selected_label = self
             .selected
@@ -788,6 +795,7 @@ fn select(ui: &Main, row: i32) {
                 .find(|p| (p.pid, p.start) == (pid, start))
                 .map(|p| (pid, start, p.name.clone()))
         });
+        s.selected_group = key.filter(|_| s.selected.is_none());
         (s.selected.clone(), s.selected_stopped())
     });
     let label = label.map(|(pid, _, name)| ui.global::<Tr>().invoke_process_label(name.as_str().into(), pid as i32));
