@@ -13,6 +13,51 @@ pub const MAX_SIZE: u32 = 8192;
 /// Allowed refresh intervals in seconds, in the order the UI lists them.
 pub const INTERVALS: [u32; 3] = [1, 2, 5];
 
+/// When the slowdown banner shows and which processes get the amber rows. The defaults are the measured values.
+/// Memory: available memory (page cache counts as available) under this share of the total. The stall figures alone
+/// give almost no warning: on a 32 GB machine with 256 MB of swap, a fast allocation went from fine to OOM-killed
+/// with about 3 s of memory stall in total. Danger is where earlyoom starts killing; watch is the earlier point where
+/// the desktop still responds but opening one more big program may tip it over. The stalls are the share of time
+/// programs waited (PSI) above which the desktop is already noticeably slow.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(default)]
+pub struct Alerts {
+    pub mem_watch_pct: u32,
+    pub mem_danger_pct: u32,
+    pub psi_mem: u32,
+    pub psi_io: u32,
+    pub psi_cpu: u32,
+    /// A CPU culprit must use at least this much (100 = one core), so an idle process is never blamed.
+    pub cpu_culprit_min: u32,
+}
+
+impl Default for Alerts {
+    fn default() -> Self {
+        Self {
+            mem_watch_pct: 20,
+            mem_danger_pct: 10,
+            psi_mem: 10,
+            psi_io: 20,
+            psi_cpu: 60,
+            cpu_culprit_min: 50,
+        }
+    }
+}
+
+impl Alerts {
+    /// A hand-edited file (or a typed value) must not make the banner impossible or permanent. Only per-field ranges:
+    /// the spin boxes report every keystroke, so a cross-field rule would drag the other number down while the user
+    /// is still typing ("5" on the way to "50"). `sys::pressure` applies danger <= watch instead.
+    pub fn normalize(&mut self) {
+        self.mem_watch_pct = self.mem_watch_pct.clamp(1, 99);
+        self.mem_danger_pct = self.mem_danger_pct.clamp(1, 99);
+        self.psi_mem = self.psi_mem.clamp(1, 100);
+        self.psi_io = self.psi_io.clamp(1, 100);
+        self.psi_cpu = self.psi_cpu.clamp(1, 100);
+        self.cpu_culprit_min = self.cpu_culprit_min.clamp(1, 1000);
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)] // older files keep loading when a field is added
 pub struct Settings {
@@ -30,6 +75,8 @@ pub struct Settings {
     pub group_apps: bool,
     /// "" follows the system's light or dark mode; otherwise "light" or "dark".
     pub theme: String,
+    /// Slowdown banner limits (`[alerts]` table).
+    pub alerts: Alerts,
 }
 
 impl Default for Settings {
@@ -43,6 +90,7 @@ impl Default for Settings {
             tree: false,
             group_apps: true,
             theme: String::new(),
+            alerts: Alerts::default(),
         }
     }
 }
@@ -78,6 +126,7 @@ impl Settings {
         if !INTERVALS.contains(&self.interval_secs) {
             self.interval_secs = 1;
         }
+        self.alerts.normalize();
     }
 
     /// Atomic write so a crash can never leave a half-written file. Failures are reported on stderr;
@@ -102,6 +151,32 @@ mod tests {
     fn old_files_still_load() {
         let parsed: Settings = toml::from_str("width = 700").unwrap();
         assert_eq!((parsed.width, parsed.language.as_str()), (700, ""));
+    }
+
+    #[test]
+    fn alerts_default_to_the_measured_values_and_load_partially() {
+        let s: Settings = toml::from_str("width = 700").unwrap();
+        assert_eq!(s.alerts, Alerts::default());
+        let s: Settings = toml::from_str("[alerts]\nmem_watch_pct = 30").unwrap();
+        assert_eq!((s.alerts.mem_watch_pct, s.alerts.psi_cpu), (30, 60));
+    }
+
+    #[test]
+    fn alerts_are_clamped_per_field() {
+        let mut s: Settings = toml::from_str("[alerts]\nmem_watch_pct = 500\nmem_danger_pct = 0\npsi_io = 0").unwrap();
+        s.normalize();
+        assert_eq!(
+            (s.alerts.mem_watch_pct, s.alerts.mem_danger_pct, s.alerts.psi_io),
+            (99, 1, 1)
+        );
+        let mut a = Alerts {
+            mem_watch_pct: 5,
+            mem_danger_pct: 50,
+            ..Alerts::default()
+        };
+        a.normalize();
+        // Not clamped against each other: typing "5" on the way to "50" must not drag the other number down.
+        assert_eq!((a.mem_watch_pct, a.mem_danger_pct), (5, 50));
     }
 
     #[test]

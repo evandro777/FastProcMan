@@ -1,6 +1,8 @@
 //! Process and system sampling straight from `/proc` (no `sysinfo`, no `libc`), plus the kill flow.
 use std::{collections::HashMap, fs, path::Path, process::Command, time::Instant};
 
+use crate::settings::Alerts;
+
 /// Why a process is flagged. Only `Deleted` and `TempDir` count for the "suspicious only" filter:
 /// `NameMismatch` fires on Firefox/Electron children that rename themselves, so it is shown but not filtered on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -86,18 +88,7 @@ pub enum Pressure {
     Cpu,
 }
 
-// Stall percentages above which the desktop is already noticeably slow; one place to tune them.
-const PSI_MEM_LIMIT: f32 = 10.0;
-const PSI_IO_LIMIT: f32 = 20.0;
-const PSI_CPU_LIMIT: f32 = 60.0;
-// Available memory (page cache counts as available) under this share of the total. The stall figures alone give
-// almost no warning: measured on a 32 GB machine with 256 MB of swap, a fast allocation went from fine to
-// OOM-killed with about 3 s of memory stall in total. Danger is where earlyoom starts killing; watch is the
-// earlier point where the desktop still responds but opening one more big program may tip it over.
-const MEM_DANGER_PCT: u64 = 10;
-const MEM_WATCH_PCT: u64 = 20;
-/// A CPU culprit must use at least half a core, so an idle process is never blamed for a busy system.
-const CPU_CULPRIT_MIN: f32 = 50.0;
+// The limits are user settings (`settings::Alerts`, with the reasoning behind the defaults).
 const MAX_CULPRITS: usize = 3;
 
 /// What to warn about: `danger` is false for the early memory watch, true when the system is already stalling.
@@ -110,7 +101,7 @@ pub struct Alert<'a> {
 
 /// The worst pressure right now (memory, then disk, then CPU) with up to three culprits: the biggest memory users,
 /// the processes in disk wait (`D`) or the busiest ones.
-pub fn pressure<'a>(s: &SysStats, procs: &'a [Proc]) -> Option<Alert<'a>> {
+pub fn pressure<'a>(s: &SysStats, procs: &'a [Proc], lim: &Alerts) -> Option<Alert<'a>> {
     let avail_under =
         |pct: u64| s.mem_total_kb > 0 && s.mem_total_kb.saturating_sub(s.mem_used_kb) * 100 < s.mem_total_kb * pct;
     let top = |mut v: Vec<&'a Proc>, key: fn(&Proc) -> f32| {
@@ -118,25 +109,31 @@ pub fn pressure<'a>(s: &SysStats, procs: &'a [Proc]) -> Option<Alert<'a>> {
         v.truncate(MAX_CULPRITS);
         v
     };
-    if s.psi_mem > PSI_MEM_LIMIT || avail_under(MEM_WATCH_PCT) {
+    let (psi_mem, psi_io, psi_cpu) = (lim.psi_mem as f32, lim.psi_io as f32, lim.psi_cpu as f32);
+    if s.psi_mem > psi_mem || avail_under(lim.mem_watch_pct.into()) {
         Some(Alert {
             kind: Pressure::Memory,
-            danger: s.psi_mem > PSI_MEM_LIMIT || avail_under(MEM_DANGER_PCT),
+            // Danger can never be earlier than watch, whatever the two numbers say.
+            danger: s.psi_mem > psi_mem || avail_under(lim.mem_danger_pct.min(lim.mem_watch_pct).into()),
             culprits: top(procs.iter().collect(), |p| p.mem_kb as f32),
         })
-    } else if s.psi_io > PSI_IO_LIMIT {
+    } else if s.psi_io > psi_io {
         Some(Alert {
             kind: Pressure::Io,
             danger: true,
             culprits: top(procs.iter().filter(|p| p.state == 'D').collect(), |p| p.mem_kb as f32),
         })
-    } else if s.psi_cpu > PSI_CPU_LIMIT {
+    } else if s.psi_cpu > psi_cpu {
         Some(Alert {
             kind: Pressure::Cpu,
             danger: true,
-            culprits: top(procs.iter().filter(|p| p.cpu_pct >= CPU_CULPRIT_MIN).collect(), |p| {
-                p.cpu_pct
-            }),
+            culprits: top(
+                procs
+                    .iter()
+                    .filter(|p| p.cpu_pct >= lim.cpu_culprit_min as f32)
+                    .collect(),
+                |p| p.cpu_pct,
+            ),
         })
     } else {
         None
@@ -803,7 +800,8 @@ mod tests {
         ];
         // (kind, danger, culprit PIDs) of the alert, if any.
         let alert = |s: &SysStats, procs: &[Proc]| {
-            pressure(s, procs).map(|a| (a.kind, a.danger, a.culprits.iter().map(|p| p.pid).collect::<Vec<_>>()))
+            pressure(s, procs, &Alerts::default())
+                .map(|a| (a.kind, a.danger, a.culprits.iter().map(|p| p.pid).collect::<Vec<_>>()))
         };
         let mut s = SysStats::default();
         assert!(alert(&s, &procs).is_none());
@@ -830,6 +828,38 @@ mod tests {
         s.mem_total_kb = 0;
         s.psi_io = 30.0;
         assert_eq!(alert(&s, &procs[..2]), Some((Pressure::Io, true, vec![])));
+        // The limits are the user's: a stricter CPU stall limit and a higher culprit floor change what is flagged.
+        let s = SysStats {
+            psi_cpu: 40.0,
+            ..SysStats::default()
+        };
+        assert!(pressure(&s, &procs, &Alerts::default()).is_none());
+        // Danger above watch counts as watch: 15% free with watch 10 and danger 50 is no alert, and with watch 20
+        // and danger 5 it is amber.
+        let m = SysStats {
+            mem_total_kb: 1000,
+            mem_used_kb: 850,
+            ..SysStats::default()
+        };
+        let odd = Alerts {
+            mem_watch_pct: 20,
+            mem_danger_pct: 5,
+            ..Alerts::default()
+        };
+        assert!(!pressure(&m, &procs, &odd).unwrap().danger);
+        let odd = Alerts {
+            mem_watch_pct: 10,
+            mem_danger_pct: 50,
+            ..Alerts::default()
+        };
+        assert!(pressure(&m, &procs, &odd).is_none());
+        let strict = Alerts {
+            psi_cpu: 30,
+            cpu_culprit_min: 70,
+            ..Alerts::default()
+        };
+        let a = pressure(&s, &procs, &strict).unwrap();
+        assert_eq!(a.culprits.iter().map(|p| p.pid).collect::<Vec<_>>(), [1]);
     }
 
     #[test]

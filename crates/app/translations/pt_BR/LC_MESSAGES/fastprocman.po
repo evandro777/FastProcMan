@@ -520,6 +520,42 @@ msgid "Group the tree by application"
 msgstr "Agrupar a árvore por aplicativo"
 
 msgctxt "Settings"
+msgid "Slowdown warning"
+msgstr "Aviso de lentidão"
+
+msgctxt "Settings"
+msgid "When the banner shows and which processes it colours amber. Stall = the share of time programs waited."
+msgstr "Quando o aviso aparece e quais processos ficam em âmbar. Travamento = a parte do tempo em que os programas ficaram esperando."
+
+msgctxt "Settings"
+msgid "Memory watch: free memory under (%)"
+msgstr "Atenção de memória: livre abaixo de (%)"
+
+msgctxt "Settings"
+msgid "Memory danger: free memory under (%)"
+msgstr "Perigo de memória: livre abaixo de (%)"
+
+msgctxt "Settings"
+msgid "Memory stall above (%)"
+msgstr "Travamento de memória acima de (%)"
+
+msgctxt "Settings"
+msgid "Disk stall above (%)"
+msgstr "Travamento de disco acima de (%)"
+
+msgctxt "Settings"
+msgid "CPU stall above (%)"
+msgstr "Travamento de CPU acima de (%)"
+
+msgctxt "Settings"
+msgid "A busy process uses at least (% of one core)"
+msgstr "Um processo ocupado usa pelo menos (% de um núcleo)"
+
+msgctxt "Settings"
+msgid "Reset warnings"
+msgstr "Restaurar avisos"
+
+msgctxt "Settings"
 msgid "Tree mode only. On: applications first, the rest under Processes. Off: one plain tree."
 msgstr "Só no modo árvore. Ligado: aplicativos primeiro, o resto em Processos. Desligado: uma árvore simples."
 

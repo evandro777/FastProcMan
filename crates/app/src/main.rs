@@ -1,6 +1,6 @@
 use fastprocman_core::{
     services,
-    settings::{INTERVALS, Settings},
+    settings::{Alerts, INTERVALS, Settings},
     sys::{self, KillError, Proc, Reason, Sample, Sampler, Signal, SysStats},
     tree::{self, Node},
 };
@@ -76,6 +76,8 @@ struct State {
     sort: (usize, bool),
     filter: String,
     strong_only: bool,
+    /// `settings.alerts`: when the slowdown banner shows and who it blames (the amber rows).
+    alerts: Alerts,
     /// `settings.cpu_whole_machine`: show process CPU % over all cores instead of one core.
     cpu_whole: bool,
     /// `settings.tree`: parents with their children under them instead of a flat list.
@@ -147,6 +149,7 @@ thread_local! {
         sort: (4, false),
         filter: String::new(),
         strong_only: false,
+        alerts: Alerts::default(),
         cpu_whole: false,
         tree: false,
         group_apps: true,
@@ -367,7 +370,7 @@ impl State {
         };
 
         // The slowdown banner and the processes it names (their rows are drawn amber).
-        let alert = sys::pressure(&self.sys, &self.procs);
+        let alert = sys::pressure(&self.sys, &self.procs, &self.alerts);
         let left = size(
             tr,
             self.sys.mem_total_kb.saturating_sub(self.sys.mem_used_kb) as f64 * 1024.0,
@@ -1117,11 +1120,14 @@ fn main() {
     let cpu_whole = settings.borrow().cpu_whole_machine;
     let tree = settings.borrow().tree;
     let group_apps = settings.borrow().group_apps;
+    let alerts = settings.borrow().alerts;
     APP.with_borrow_mut(|s| {
+        s.alerts = alerts;
         s.cpu_whole = cpu_whole;
         s.tree = tree;
         s.group_apps = group_apps;
     });
+    ui.set_limits(limits_to_ui(&alerts));
     ui.set_cpu_whole_machine(cpu_whole);
     ui.set_group_apps(group_apps);
     ui.set_tree(tree);
@@ -1286,6 +1292,15 @@ fn main() {
             settings.borrow().save();
         }
     });
+    // Typed values are clamped here, and the clamped numbers go back to the spin boxes. Next tick uses them.
+    ui.on_limits_changed({
+        let (weak, settings) = (weak.clone(), settings.clone());
+        move |l| set_alerts(&weak, &settings, limits_from_ui(&l))
+    });
+    ui.on_limits_reset({
+        let (weak, settings) = (weak.clone(), settings.clone());
+        move || set_alerts(&weak, &settings, Alerts::default())
+    });
     ui.on_cpu_scope_changed({
         let (weak, settings) = (weak.clone(), settings.clone());
         move |whole| {
@@ -1427,6 +1442,42 @@ const THEMES: [&str; 3] = ["", "light", "dark"];
 /// The Appearance box index of a `settings.theme` value; anything unknown follows the system.
 fn theme_index(theme: &str) -> i32 {
     THEMES.iter().position(|t| *t == theme).unwrap_or(0) as i32
+}
+
+fn limits_to_ui(a: &Alerts) -> AlertLimits {
+    AlertLimits {
+        mem_watch: a.mem_watch_pct as i32,
+        mem_danger: a.mem_danger_pct as i32,
+        psi_mem: a.psi_mem as i32,
+        psi_io: a.psi_io as i32,
+        psi_cpu: a.psi_cpu as i32,
+        cpu_culprit: a.cpu_culprit_min as i32,
+    }
+}
+
+/// A spin box can never go below its minimum, but a typed value is still checked by `Alerts::normalize` (which `u32`
+/// of a negative number would defeat: `max(0)` first).
+fn limits_from_ui(l: &AlertLimits) -> Alerts {
+    let n = |v: i32| v.max(0) as u32;
+    Alerts {
+        mem_watch_pct: n(l.mem_watch),
+        mem_danger_pct: n(l.mem_danger),
+        psi_mem: n(l.psi_mem),
+        psi_io: n(l.psi_io),
+        psi_cpu: n(l.psi_cpu),
+        cpu_culprit_min: n(l.cpu_culprit),
+    }
+}
+
+/// Normalizes, saves and applies new slowdown limits, then shows the clamped numbers back in the spin boxes.
+fn set_alerts(weak: &slint::Weak<Main>, settings: &RefCell<Settings>, mut a: Alerts) {
+    a.normalize();
+    settings.borrow_mut().alerts = a;
+    settings.borrow().save();
+    APP.with_borrow_mut(|s| s.alerts = a);
+    if let Some(ui) = weak.upgrade() {
+        ui.set_limits(limits_to_ui(&a));
+    }
 }
 
 /// Selects the language now. A locale with no translation (`de_DE`, or `en_US`) falls back to English explicitly:

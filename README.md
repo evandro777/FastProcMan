@@ -22,7 +22,7 @@ Page: <https://evandro777.github.io/FastProcMan/>
 - **Processes:** name, PID, user, CPU % and memory of every process, with icons. Sort by any column, or just start typing to filter by name or PID. A **Tree** switch groups processes by application, like Mission Center.
 - **Quit, force quit, suspend, priority and properties** from the right-click menu or the keyboard. Quit and force quit always ask first; other users' processes ask for the password through polkit (`pkexec`). PID 1 and FastProcMan itself are refused.
 - **Suspicious processes:** a Warning column flags programs deleted from disk while running, or running from `/tmp`, and a filter shows only those.
-- **Slowdown warning:** a banner warns before the system freezes (low memory, busy disk or CPU) and names the likely culprits, one click from selecting them. It never ends anything by itself.
+- **Slowdown warning:** a banner warns before the system freezes (low memory, busy disk or CPU) and names the likely culprits, one click from selecting them. It never ends anything by itself. The limits that trigger it are in Preferences.
 - **Graphs:** the last minute of CPU (and each core), memory and swap, network, GPU (NVIDIA or AMD) and each disk.
 - **Services:** the systemd services with status and startup state; start, stop and restart them (stop and restart ask first).
 - English and Brazilian Portuguese, a CPU % scope setting, and a remembered window size.

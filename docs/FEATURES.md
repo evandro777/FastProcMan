@@ -43,7 +43,8 @@ A banner above the tabs warns before the system freezes.
 
 - **Amber** when less than 20% of the memory is available ("opening another big app may freeze the system": the desktop still responds).
 - **Red** when less than 10% is left or the kernel reports that tasks are stalling (pressure stall information, `/proc/pressure`, 10 s average: memory above 10%, disk above 20%, CPU above 60%).
-- One button per likely cause, up to three: the biggest memory users, processes waiting on the disk (state `D`) or the busiest processes. Those rows are amber in the table. Click a button to select that process on the Processes tab, then `Delete` to end it (it still asks first).
+- Those six numbers are the defaults; **Settings → Slowdown warning** changes them (see below).
+- One button per likely cause, up to three: the biggest memory users, processes waiting on the disk (state `D`) or the busiest processes (using at least 50% of a core). Those rows are amber in the table. Click a button to select that process on the Processes tab, then `Delete` to end it (it still asks first).
 - Nothing is ended automatically, and a machine that is already frozen cannot show it: use `earlyoom` or `systemd-oomd` for that. Needs a kernel with PSI (5.2+); without it there is no warning.
 
 ## Settings
@@ -51,6 +52,7 @@ A banner above the tabs warns before the system freezes.
 The ☰ button at the top right of the Processes tab, or `Ctrl+,`; **About** is a button inside it.
 
 - **CPU % of the whole machine.** Off by default: the CPU % of a process is per core, as in `top` (100 = one core, so a busy process can pass 100). On: 100 = all cores together. Saved as `cpu_whole_machine` in `settings.toml`. The CPU graph is always the whole machine.
+- **Slowdown warning.** Six numbers: free memory under 20% (amber) and under 10% (red); memory stall above 10%, disk stall above 20%, CPU stall above 60% (all red); and the CPU a process must use to be blamed (50 = half a core, always per core). They apply on the next refresh and **Reset warnings** restores these defaults. Saved in the `[alerts]` table of `settings.toml` (`mem_watch_pct`, `mem_danger_pct`, `psi_mem`, `psi_io`, `psi_cpu`, `cpu_culprit_min`); each value is kept in range, and a danger limit above the watch limit counts as the watch limit. A higher stall limit or CPU floor warns less; a higher free-memory limit warns more.
 - **Language:** follows the system or picks English or Brazilian Portuguese, and applies at once.
 - The window size is remembered too (saved as `width` and `height` when the window closes, not while it is maximized or fullscreen).
 

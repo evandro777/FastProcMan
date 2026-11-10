@@ -1,5 +1,5 @@
 import {
-    Button, ComboBox, ListView, Palette, ScrollView, Switch, VerticalBox,
+    Button, ComboBox, ListView, Palette, ScrollView, SpinBox, Switch, VerticalBox,
 } from "std-widgets.slint";
 import { Family } from "family.slint";
 import { AboutCard, PrefRow } from "about.slint";
@@ -205,9 +205,37 @@ component About inherits Rectangle {
     }
 }
 
-// Options. Like Confirm it has no FocusScope: `Main.shortcuts` answers Escape and Space for it (a closing popup menu
-// hands the keyboard focus back to what had it, so the overlay cannot hold it).
+// The slowdown banner's limits (`settings::Alerts`): the same six numbers, in the same units.
+export struct AlertLimits {
+    mem-watch: int,
+    mem-danger: int,
+    psi-mem: int,
+    psi-io: int,
+    psi-cpu: int,
+    cpu-culprit: int,
+}
+
+// One number of the slowdown limits: a label and a spin box. Rust clamps whatever is typed and writes it back.
+component LimitRow inherits PrefRow {
+    in-out property <int> value;
+    in property <int> maximum: 100;
+    callback edited();
+    SpinBox {
+        width: Family.control-width;
+        minimum: 1;
+        maximum: root.maximum;
+        value <=> root.value;
+        edited(_) => { root.edited(); }
+    }
+}
+
+// Options. Like Confirm it has no FocusScope around the card: `Main.shortcuts` answers Escape and Space for it (a
+// closing popup menu hands the keyboard focus back to what had it, so the overlay cannot hold it). The spin boxes
+// can take the focus themselves, and then keys no longer pass `shortcuts`: the small scope below answers Escape.
 component Settings inherits Rectangle {
+    in-out property <AlertLimits> limits;
+    callback limits-changed(AlertLimits);
+    callback limits-reset();
     in-out property <bool> cpu-whole-machine;
     in-out property <bool> group-apps;
     // 0 follows the system, then one entry per bundled language (the order is `LANGUAGES` in main.rs).
@@ -225,7 +253,8 @@ component Settings inherits Rectangle {
     TouchArea { clicked => { root.dismiss(); } }
     Rectangle {
         width: min(Family.dialog-width, parent.width - 32px);
-        height: box.preferred-height;
+        // Taller than a 400 px window with the six limits: the card stops at the window and scrolls.
+        height: min(box.preferred-height + 52px, parent.height - 32px);
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         background: Palette.background;
@@ -233,6 +262,16 @@ component Settings inherits Rectangle {
         border-width: 1px;
         border-color: Palette.border;
         TouchArea { }
+        FocusScope {
+            width: parent.width;
+            height: parent.height;
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.dismiss(); return accept; }
+                return reject;
+            }
+        VerticalLayout {
+        ScrollView {
+        vertical-stretch: 1;
         box := VerticalLayout {
             alignment: start;
             padding: 16px;
@@ -283,12 +322,59 @@ component Settings inherits Rectangle {
                 font-size: Family.caption;
                 color: Family.muted;
             }
-            HorizontalLayout {
-                alignment: end;
-                spacing: 8px;
-                Button { text: @tr("About"); clicked => { root.about(); } }
-                Button { text: @tr("Close"); primary: true; clicked => { root.dismiss(); } }
+            Text { text: @tr("Slowdown warning"); font-weight: 600; }
+            Text {
+                text: @tr("When the banner shows and which processes it colours amber. Stall = the share of time programs waited.");
+                wrap: word-wrap;
+                font-size: Family.caption;
+                color: Family.muted;
             }
+            LimitRow {
+                label: @tr("Memory watch: free memory under (%)");
+                maximum: 99;
+                value <=> root.limits.mem-watch;
+                edited => { root.limits-changed(root.limits); }
+            }
+            LimitRow {
+                label: @tr("Memory danger: free memory under (%)");
+                maximum: 99;
+                value <=> root.limits.mem-danger;
+                edited => { root.limits-changed(root.limits); }
+            }
+            LimitRow {
+                label: @tr("Memory stall above (%)");
+                value <=> root.limits.psi-mem;
+                edited => { root.limits-changed(root.limits); }
+            }
+            LimitRow {
+                label: @tr("Disk stall above (%)");
+                value <=> root.limits.psi-io;
+                edited => { root.limits-changed(root.limits); }
+            }
+            LimitRow {
+                label: @tr("CPU stall above (%)");
+                value <=> root.limits.psi-cpu;
+                edited => { root.limits-changed(root.limits); }
+            }
+            LimitRow {
+                label: @tr("A busy process uses at least (% of one core)");
+                maximum: 1000;
+                value <=> root.limits.cpu-culprit;
+                edited => { root.limits-changed(root.limits); }
+            }
+        }
+        }
+        // Outside the scroll area, so Close is always in reach.
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            padding: 16px;
+            padding-top: 4px;
+            Button { text: @tr("Reset warnings"); clicked => { root.limits-reset(); } }
+            Button { text: @tr("About"); clicked => { root.about(); } }
+            Button { text: @tr("Close"); primary: true; clicked => { root.dismiss(); } }
+        }
+        }
         }
     }
 }
@@ -1347,6 +1433,9 @@ export component Main inherits Window {
     in property <string> version;
     in-out property <bool> about-open: false;
     in-out property <bool> settings-open: false;
+    in-out property <AlertLimits> limits;
+    callback limits-changed(AlertLimits);
+    callback limits-reset();
     in-out property <bool> cpu-whole-machine: false;
     in-out property <bool> group-apps: true;
     in-out property <int> language-index: 0;
@@ -1811,6 +1900,9 @@ export component Main inherits Window {
     if root.settings-open: Settings {
         width: root.width;
         height: root.height;
+        limits <=> root.limits;
+        limits-changed(l) => { root.limits-changed(l); }
+        limits-reset => { root.limits-reset(); }
         cpu-whole-machine <=> root.cpu-whole-machine;
         group-apps <=> root.group-apps;
         language-index <=> root.language-index;
@@ -1819,7 +1911,8 @@ export component Main inherits Window {
         theme-changed(i) => { root.theme-changed(i); }
         dismiss => { root.settings-open = false; shortcuts.focus(); }
         // Close Settings first: its branch in `capture-key-pressed` runs before About's, so Escape would miss About.
-        about => { root.settings-open = false; root.about-open = true; }
+        // A focused spin box would vanish with Settings and take the focus with it.
+        about => { root.settings-open = false; root.about-open = true; shortcuts.focus(); }
         cpu-scope-changed(b) => { root.cpu-scope-changed(b); }
         group-apps-changed(b) => { root.group-apps-changed(b); }
     }
