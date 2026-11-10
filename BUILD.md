@@ -67,5 +67,6 @@ appimage/build.sh             # needs appimagetool on PATH; writes FastProcMan-<
 `$XDG_DATA_HOME/FastProcMan/settings.toml` (defaults to `~/.local/share/FastProcMan`; in the Flatpak under `~/.var/app/<app-id>/data/`):
 
 - `language`: `""` follows the system locale; otherwise a code such as `"pt_BR"`.
+- `theme`: `""` follows the system's light or dark mode; otherwise `"light"` or `"dark"`. The **Appearance** box in Preferences writes it.
 - `width`, `height`: the starting window size (edit by hand; the app does not save it).
 - `interval_secs`: refresh interval, `1` (default), `2` or `5`; the **Refresh** box at the bottom writes it. Anything else falls back to `1`. A file that already has a value keeps it.

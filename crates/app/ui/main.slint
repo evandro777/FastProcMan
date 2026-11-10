@@ -1,11 +1,13 @@
 import {
-    Button, ComboBox, LineEdit, ListView, Palette, ScrollView, Switch, TabWidget, VerticalBox,
+    Button, ComboBox, ListView, Palette, ScrollView, Switch, VerticalBox,
 } from "std-widgets.slint";
+import { Family } from "family.slint";
+import { AboutCard, PrefRow } from "about.slint";
+import { AlertIcon, FilterBar, Icon, MenuButton, SearchBox, TabBar, TabItem } from "controls.slint";
 
 // Strings built in Rust go through this global (never `format!` user-visible text in Rust).
 // Numbers are formatted in Rust and passed in as strings; the wording and units live here.
 export global Tr {
-    public pure function version(v: string) -> string { return @tr("Version {}", v); }
     public pure function count(n: int) -> string { return n == 1 ? @tr("1 process") : @tr("{} processes", n); }
     public pure function process-label(name: string, pid: int) -> string { return @tr("{} ({})", name, pid); }
     // The tree's group for programs that belong to no application.
@@ -45,11 +47,11 @@ export global Tr {
     public pure function net-summary(rx: string, tx: string) -> string { return @tr("Down {}  Up {}", rx, tx); }
     public pure function disk-summary(r: string, w: string) -> string { return @tr("Read {}  Write {}", r, w); }
     public pure function alert-memory-watch(left: string) -> string {
-        return @tr("⚠ {} of memory left: opening another big app may freeze the system", left);
+        return @tr("{} of memory left: opening another big app may freeze the system", left);
     }
-    public pure function alert-memory-danger(left: string) -> string { return @tr("⚠ Low memory: {} left", left); }
-    public pure function alert-io() -> string { return @tr("⚠ Disk is busy"); }
-    public pure function alert-cpu() -> string { return @tr("⚠ CPU overloaded"); }
+    public pure function alert-memory-danger(left: string) -> string { return @tr("Low memory: {} left", left); }
+    public pure function alert-io() -> string { return @tr("Disk is busy"); }
+    public pure function alert-cpu() -> string { return @tr("CPU overloaded"); }
     // Same text as `process-label` (`{} ({})`), with a ready-made value (a size or a percentage).
     public pure function alert-item(name: string, value: string) -> string { return @tr("{} ({})", name, value); }
     public pure function status-ended(label: string) -> string { return @tr("Asked {} to quit", label); }
@@ -164,7 +166,7 @@ component About inherits Rectangle {
     in property <string> version;
     callback dismiss();
     callback open-website();
-    background: #0008;
+    background: Family.scrim;
     init => { keys.focus(); }
 
     // Swallows clicks so nothing behind the overlay is reachable; a click outside the card closes it.
@@ -179,39 +181,25 @@ component About inherits Rectangle {
         }
     }
     Rectangle {
-        width: 320px;
+        width: min(Family.dialog-width, parent.width - 32px);
         height: box.preferred-height;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         background: Palette.background;
-        border-radius: 10px;
+        border-radius: Family.radius;
         border-width: 1px;
         border-color: Palette.border;
         TouchArea { }
-        box := VerticalBox {
-            alignment: start;
-            padding: 18px;
-            spacing: 14px;
-            HorizontalLayout {
-                alignment: center;
-                Image {
-                    source: @image-url("../../../packaging/io.github.evandro777.FastProcMan.svg");
-                    width: 64px;
-                    height: 64px;
-                }
-            }
-            Text { text: "FastProcMan"; font-size: 20px; font-weight: 700; horizontal-alignment: center; }
-            Text { text: Tr.version(root.version); horizontal-alignment: center; }
-            Text {
-                text: @tr("A light and fast process manager built with Rust and Slint.");
-                wrap: word-wrap;
-                horizontal-alignment: center;
-            }
-            HorizontalLayout {
-                alignment: end;
-                spacing: 8px;
-                Button { text: @tr("Website"); clicked => { root.open-website(); } }
-                Button { text: @tr("Close"); primary: true; clicked => { root.dismiss(); } }
+        box := VerticalLayout {
+            padding: 16px;
+            AboutCard {
+                icon: @image-url("../../../packaging/io.github.evandro777.FastProcMan.svg");
+                name: "FastProcMan";
+                version: root.version;
+                description: @tr("A light and fast process manager built with Rust and Slint.");
+                url: "github.com/evandro777/FastProcMan";
+                link-clicked(_) => { root.open-website(); }
+                close => { root.dismiss(); }
             }
         }
     }
@@ -225,51 +213,52 @@ component Settings inherits Rectangle {
     // 0 follows the system, then one entry per bundled language (the order is `LANGUAGES` in main.rs).
     in-out property <int> language-index;
     callback language-changed(int);
+    // 0 follows the system, 1 light, 2 dark (settings.theme).
+    in-out property <int> color-scheme-index;
+    callback theme-changed(int);
     callback dismiss();
     callback about();
     callback cpu-scope-changed(bool);
     callback group-apps-changed(bool);
-    background: #0008;
+    background: Family.scrim;
 
     TouchArea { clicked => { root.dismiss(); } }
     Rectangle {
-        width: min(420px, parent.width - 32px);
+        width: min(Family.dialog-width, parent.width - 32px);
         height: box.preferred-height;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
         background: Palette.background;
-        border-radius: 10px;
+        border-radius: Family.radius;
         border-width: 1px;
         border-color: Palette.border;
         TouchArea { }
-        box := VerticalBox {
+        box := VerticalLayout {
             alignment: start;
-            padding: 18px;
-            spacing: 14px;
-            Text { text: @tr("Settings"); font-size: 16px; font-weight: 700; }
-            HorizontalLayout {
-                spacing: 12px;
-                Text {
-                    text: @tr("Language");
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
+            padding: 16px;
+            spacing: Family.gap-l;
+            Text { text: @tr("Preferences"); font-size: Family.page-title; font-weight: Family.page-weight; }
+            PrefRow {
+                label: @tr("Appearance");
+                ComboBox {
+                    width: Family.control-width;
+                    model: [@tr("System"), @tr("Light"), @tr("Dark")];
+                    current-index <=> root.color-scheme-index;
+                    selected(_) => { root.theme-changed(self.current-index); }
                 }
+            }
+            PrefRow {
+                label: @tr("Language");
                 // Language names stay in their own language, so a user lost in the wrong one can find theirs.
                 ComboBox {
-                    width: 190px;
+                    width: Family.control-width;
                     model: [@tr("System"), "English", "Português (Brasil)"];
                     current-index <=> root.language-index;
                     selected(_) => { root.language-changed(self.current-index); }
                 }
             }
-            HorizontalLayout {
-                spacing: 12px;
-                Text {
-                    text: @tr("CPU % of the whole machine");
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                    wrap: word-wrap;
-                }
+            PrefRow {
+                label: @tr("CPU % of the whole machine");
                 Switch {
                     checked <=> root.cpu-whole-machine;
                     toggled => { root.cpu-scope-changed(self.checked); }
@@ -278,17 +267,11 @@ component Settings inherits Rectangle {
             Text {
                 text: @tr("Off: 100% is one core, so a busy process can pass 100%. On: 100% is all cores together.");
                 wrap: word-wrap;
-                font-size: 11px;
-                color: Palette.foreground.with-alpha(0.6);
+                font-size: Family.caption;
+                color: Family.muted;
             }
-            HorizontalLayout {
-                spacing: 12px;
-                Text {
-                    text: @tr("Group the tree by application");
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                    wrap: word-wrap;
-                }
+            PrefRow {
+                label: @tr("Group the tree by application");
                 Switch {
                     checked <=> root.group-apps;
                     toggled => { root.group-apps-changed(self.checked); }
@@ -297,8 +280,8 @@ component Settings inherits Rectangle {
             Text {
                 text: @tr("Tree mode only. On: applications first, the rest under Processes. Off: one plain tree.");
                 wrap: word-wrap;
-                font-size: 11px;
-                color: Palette.foreground.with-alpha(0.6);
+                font-size: Family.caption;
+                color: Family.muted;
             }
             HorizontalLayout {
                 alignment: end;
@@ -322,7 +305,7 @@ component Confirm inherits Rectangle {
     in property <int> service;
     callback accepted();
     callback dismiss();
-    background: #0008;
+    background: Family.scrim;
 
     TouchArea { clicked => { root.dismiss(); } }
     Rectangle {
@@ -351,8 +334,8 @@ component Confirm inherits Rectangle {
                     text: root.service == 1 ? @tr("Stop {}?", root.label)
                         : root.service == 2 ? @tr("Restart {}?", root.label)
                         : root.force ? @tr("Force quit {}?", root.label) : @tr("Quit {}?", root.label);
-                    font-size: 16px;
-                    font-weight: 700;
+                    font-size: Family.title;
+                    font-weight: Family.section-weight;
                     wrap: word-wrap;
                     horizontal-stretch: 1;
                 }
@@ -387,9 +370,9 @@ component PropRow inherits HorizontalLayout {
     Text {
         text: root.label;
         width: 130px;
-        font-size: 13px;
+        font-size: Family.body;
         vertical-alignment: top;
-        color: Palette.foreground.with-alpha(0.7);
+        color: Family.muted;
     }
     // Read-only TextInput so the value can be selected and copied. A wrapped one in a layout reports a single
     // line of height, so the room is estimated from the character count and the fixed value width.
@@ -397,7 +380,7 @@ component PropRow inherits HorizontalLayout {
         text: root.value;
         read-only: true;
         wrap: char-wrap;
-        font-size: 13px;
+        font-size: Family.body;
         color: Palette.foreground;
         horizontal-stretch: 1;
         min-height: max(1, ceil(root.value.character-count * 7.5px / 380px)) * 18px;
@@ -408,7 +391,7 @@ component PropRow inherits HorizontalLayout {
 component Properties inherits Rectangle {
     in property <PropData> data;
     callback dismiss();
-    background: #0008;
+    background: Family.scrim;
 
     TouchArea { clicked => { root.dismiss(); } }
     Rectangle {
@@ -422,7 +405,7 @@ component Properties inherits Rectangle {
         border-color: Palette.border;
         TouchArea { }
         VerticalBox {
-            Text { text: @tr("Properties"); font-size: 16px; font-weight: 700; }
+            Text { text: @tr("Properties"); font-size: Family.page-title; font-weight: Family.page-weight; }
             ScrollView {
                 // `alignment: start`, or a short list would spread its rows over the whole card.
                 list := VerticalLayout {
@@ -444,16 +427,16 @@ component Properties inherits Rectangle {
                     Text {
                         text: @tr("Memory is resident minus shared: what the process uses by itself. Virtual includes reserved space that is not in RAM.");
                         wrap: word-wrap;
-                        font-size: 11px;
-                        color: Palette.foreground.with-alpha(0.6);
+                        font-size: Family.caption;
+                        color: Family.muted;
                     }
                     PropRow { label: @tr("Disk since start"); value: root.data.io; }
                     if root.data.warning != "": PropRow { label: @tr("Warning"); value: root.data.warning; }
                     if root.data.warning != "": Text {
                         text: root.data.warning-note;
                         wrap: word-wrap;
-                        font-size: 11px;
-                        color: Palette.foreground.with-alpha(0.6);
+                        font-size: Family.caption;
+                        color: Family.muted;
                     }
                     PropRow { label: @tr("Program"); value: root.data.exe; }
                     PropRow { label: @tr("Command line"); value: root.data.cmdline; }
@@ -486,37 +469,6 @@ global Cols {
 
 // The sort arrow. It takes room only while its column is the sorted one; the title does not move either way,
 // because the header cell anchors it to the edge the numbers or the text start from.
-component TabItem inherits Rectangle {
-    in property <string> title;
-    in property <bool> active;
-    callback clicked();
-    accessible-role: tab;
-    accessible-label: root.title;
-    accessible-item-selected: root.active;
-    accessible-action-default => { root.clicked(); }
-    background: touch.has-hover && !root.active ? Palette.alternate-background : transparent;
-    // The tab is always as wide as its bold title, so going bold on selection does not move the other tabs.
-    preferred-width: bold.preferred-width + 28px;
-    min-width: self.preferred-width;
-    bold := Text { text: root.title; font-weight: 600; visible: false; }
-    touch := TouchArea { clicked => { root.clicked(); } }
-    HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 14px;
-        Text {
-            text: root.title;
-            font-weight: root.active ? 600 : 400;
-            color: root.active ? Palette.foreground : Palette.foreground.with-alpha(0.65);
-            vertical-alignment: center;
-        }
-    }
-    Rectangle {
-        y: parent.height - 2px;
-        height: 2px;
-        background: root.active ? Palette.accent-background : transparent;
-    }
-}
-
 component SortArrow inherits Rectangle {
     in property <bool> active;
     in property <bool> ascending;
@@ -550,7 +502,7 @@ component HeaderCell inherits Rectangle {
         Text {
             text: root.title;
             // Quiet headers; the sorted column is the one at full strength.
-            font-weight: 500;
+            font-weight: Family.section-weight;
             color: root.active ? Palette.foreground : Palette.foreground.with-alpha(0.7);
             overflow: elide;
             vertical-alignment: center;
@@ -568,9 +520,19 @@ component Cell inherits Rectangle {
     in property <string> text;
     in property <brush> fg;
     in property <TextHorizontalAlignment> align: left;
-    Text {
+    // A warning triangle before the text (a failed service), so the state is not only a colour.
+    in property <bool> alert: false;
+    if root.alert : Icon {
         x: 8px;
-        width: parent.width - 16px;
+        y: (parent.height - self.height) / 2;
+        width: 12px;
+        height: 12px;
+        source: @image-url("icons/triangle-alert.svg");
+        tone: root.fg;
+    }
+    Text {
+        x: root.alert ? 24px : 8px;
+        width: parent.width - (root.alert ? 32px : 16px);
         height: parent.height;
         text: root.text;
         color: root.fg;
@@ -591,14 +553,14 @@ component ProcRowItem inherits Rectangle {
     // Every other row is a shade darker, so the eye can follow a row across the wide Name column.
     in property <bool> odd;
     // A selected row keeps its own text colour (amber, red): the selection is a faint tint plus a bar on the left.
-    property <brush> fg: root.info.risky ? #e0a030 : Palette.foreground;
+    property <brush> fg: root.info.risky ? Family.warning : Palette.foreground;
     // The Name column's width, from the row's (the list sets that), so no binding loop through the layout. The indent
     // is capped to leave the chevron, the icon and a little text: at the 640 px minimum a real desktop's tree is
     // deeper than the column is wide (about 17 levels fit at the default 860 px).
     property <length> name-w: root.width - Cols.bar - Cols.pid - Cols.user - Cols.cpu - Cols.memory - Cols.warning;
     property <length> indent: min(root.info.depth * 16px, max(0px, root.name-w - 96px));
     height: Cols.row-h;
-    background: root.selected ? Palette.accent-background.with-alpha(0.22)
+    background: root.selected ? Family.selected
         : (touch.has-hover ? Palette.alternate-background : (root.odd ? Palette.foreground.with-alpha(0.03) : transparent));
     accessible-role: list-item;
     accessible-label: root.info.name;
@@ -673,7 +635,7 @@ component ProcRowItem inherits Rectangle {
                     horizontal-stretch: 1;
                     text: root.info.name;
                     color: root.fg;
-                    font-weight: root.info.group ? 700 : 400;
+                    font-weight: root.info.group ? Family.section-weight : 400;
                     overflow: elide;
                     vertical-alignment: center;
                 }
@@ -683,7 +645,7 @@ component ProcRowItem inherits Rectangle {
         Cell { width: Cols.user; text: root.info.user; fg: root.fg; }
         Cell { width: Cols.cpu; text: root.info.cpu; fg: root.fg; align: right; }
         Cell { width: Cols.memory; text: root.info.memory; fg: root.fg; align: right; }
-        Cell { width: Cols.warning; text: root.info.warning; fg: root.info.strong ? #e05050 : root.fg; }
+        Cell { width: Cols.warning; text: root.info.warning; fg: root.info.strong ? Family.danger : root.fg; }
     }
 }
 
@@ -820,9 +782,9 @@ component ProcessesPage inherits Rectangle {
             spacing: 8px;
             // The old settings button gave this row its height; without it the box would take all the spare space.
             height: 32px;
-            search := LineEdit {
+            search := SearchBox {
                 horizontal-stretch: 1;
-                placeholder-text: @tr("Filter by name or PID (Ctrl+F)");
+                placeholder: @tr("Filter by name or PID (Ctrl+F)");
                 text <=> root.filter;
                 edited(t) => {
                     root.in-list = false;
@@ -831,7 +793,7 @@ component ProcessesPage inherits Rectangle {
                 // The box sees the key before `Main` does. Up and Down move through the list without leaving the
                 // box, and the Menu key opens the menu of the selected process: left alone, the box would open its
                 // own Cut/Copy/Paste menu (its context menu is a parent of the text and takes the key).
-                key-pressed(event) => {
+                key(event) => {
                     // The box takes Escape itself, so `Main` would never see it: clear what was typed.
                     if event.text == Key.Escape && root.filter != "" {
                         root.clear-filter();
@@ -888,6 +850,7 @@ component ProcessesPage inherits Rectangle {
                 Rectangle {
                     height: Cols.head-h;
                     background: Palette.alternate-background;
+                    Rectangle { y: parent.height - 1px; height: 1px; background: Palette.border; }
                     HorizontalLayout {
                         padding-right: Cols.bar;
                         HeaderCell {
@@ -1022,7 +985,7 @@ component ServiceRowItem inherits Rectangle {
     in property <bool> odd;
     property <brush> fg: Palette.foreground;
     height: Cols.row-h;
-    background: root.selected ? Palette.accent-background.with-alpha(0.22)
+    background: root.selected ? Family.selected
         : (touch.has-hover ? Palette.alternate-background : (root.odd ? Palette.foreground.with-alpha(0.03) : transparent));
     accessible-role: list-item;
     accessible-label: root.info.name;
@@ -1048,7 +1011,8 @@ component ServiceRowItem inherits Rectangle {
         Cell {
             width: SvcCols.status;
             text: root.info.status;
-            fg: root.info.status == Tr.state-failed() ? #e05050 : Palette.foreground;
+            alert: root.info.status == Tr.state-failed();
+            fg: root.info.status == Tr.state-failed() ? Family.danger : Palette.foreground;
         }
         Cell { width: SvcCols.startup; text: root.info.startup; fg: root.fg; }
     }
@@ -1105,13 +1069,13 @@ component ServicesPage inherits Rectangle {
         spacing: 8px;
         HorizontalLayout {
             spacing: 8px;
-            search := LineEdit {
+            search := SearchBox {
                 horizontal-stretch: 1;
-                placeholder-text: @tr("Filter by service name (Ctrl+F)");
+                placeholder: @tr("Filter by service name (Ctrl+F)");
                 text <=> root.filter;
                 edited(t) => { root.filter-changed(t); }
                 // The box takes Escape itself, so `Main` would never see it.
-                key-pressed(event) => {
+                key(event) => {
                     if event.text == Key.Escape && root.filter != "" {
                         root.clear-filter();
                         return accept;
@@ -1119,11 +1083,10 @@ component ServicesPage inherits Rectangle {
                     return reject;
                 }
             }
-            ComboBox {
-                width: 140px;
-                model: [@tr("All statuses"), @tr("Running"), @tr("Failed"), @tr("Stopped")];
-                current-index <=> root.status-index;
-                selected(_) => { root.status-changed(self.current-index); }
+            FilterBar {
+                labels: [@tr("All"), @tr("Running"), @tr("Failed"), @tr("Stopped")];
+                selected <=> root.status-index;
+                picked => { root.status-changed(root.status-index); root.focus-list(); }
             }
             ComboBox {
                 width: 140px;
@@ -1139,6 +1102,7 @@ component ServicesPage inherits Rectangle {
                 Rectangle {
                     height: Cols.head-h;
                     background: Palette.alternate-background;
+                    Rectangle { y: parent.height - 1px; height: 1px; background: Palette.border; }
                     HorizontalLayout {
                         padding-right: Cols.bar;
                         HeaderCell {
@@ -1248,11 +1212,13 @@ component GraphCard inherits Rectangle {
         HorizontalLayout {
             spacing: 8px;
             // A long GPU name gives way first; the value keeps its width while there is room.
-            Text { text: root.data.title; font-weight: 700; overflow: elide; horizontal-stretch: 1; }
+            Text { text: root.data.title; font-weight: Family.section-weight; overflow: elide; horizontal-stretch: 1; }
             Text { text: root.data.value; horizontal-alignment: right; overflow: elide; horizontal-stretch: 0; }
         }
         if root.data.extra != "": Text {
             text: root.data.extra;
+            font-size: Family.caption;
+            color: Family.muted;
             horizontal-alignment: right;
             overflow: elide;
             vertical-stretch: 0;
@@ -1331,7 +1297,7 @@ component GraphCard inherits Rectangle {
                 viewbox-height: 100;
                 fit: fill;
                 commands: root.data.faint;
-                stroke: Palette.foreground.with-alpha(0.15);
+                stroke: Palette.foreground.with-alpha(0.08);
                 stroke-width: 1px;
             }
             for p[i] in root.data.paths: Path {
@@ -1385,6 +1351,14 @@ export component Main inherits Window {
     in-out property <bool> group-apps: true;
     in-out property <int> language-index: 0;
     callback language-changed(int);
+    // 0 follows the system, 1 light, 2 dark (settings.theme). Palette.color-scheme is the only palette property an app
+    // can set; the colors still follow the system accent.
+    in-out property <int> color-scheme-index: 0;
+    callback theme-changed(int);
+    changed color-scheme-index => {
+        Palette.color-scheme = root.color-scheme-index == 1 ? ColorScheme.light
+            : root.color-scheme-index == 2 ? ColorScheme.dark : ColorScheme.unknown;
+    }
     // The tab; `in-out` so FASTPROCMAN_PAGE can open one directly (scripts/ui-snapshot.sh).
     in-out property <int> page: 0;
     in property <[ProcRow]> rows;
@@ -1627,7 +1601,7 @@ export component Main inherits Window {
             // Slowdown banner, on every tab. Amber while there is still room, red once the system is stalling or
             // nearly out of memory. `alignment: start` on the inner layout: a short row must not stretch.
             if root.alert-text != "": Rectangle {
-                property <color> tint: root.alert-danger ? #d04040 : #e0a030;
+                property <color> tint: root.alert-danger ? Family.danger : Family.warning;
                 background: self.tint.with-alpha(0.14);
                 // A stripe on the left instead of a box around the whole banner: the same signal, less like an error dialog.
                 Rectangle {
@@ -1641,10 +1615,14 @@ export component Main inherits Window {
                     padding-left: 12px;
                     spacing: 6px;
                     alignment: start;
-                    Text {
-                        text: root.alert-text;
-                        font-weight: 600;
-                        wrap: word-wrap;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        AlertIcon { y: 3px; tone: root.alert-danger ? Family.danger : Family.warning; }
+                        Text {
+                            text: root.alert-text;
+                            font-weight: Family.section-weight;
+                            wrap: word-wrap;
+                        }
                     }
                     // Built only with buttons: an empty layout would take the banner's spare height.
                     if root.alert-items.length > 0: HorizontalLayout {
@@ -1666,21 +1644,12 @@ export component Main inherits Window {
                 height: parent.height;
                 // Our own tab bar (Fluent's stretches three tabs over the whole width). The pages below all stay
                 // alive and are only hidden: a page made with `if` would lose its scroll position and sort arrows.
-                Rectangle {
-                    height: 32px;
-                    HorizontalLayout {
-                        padding-right: 34px;
-                        for title[i] in [@tr("Processes"), @tr("Graphs"), @tr("Services")]: TabItem {
-                            title: title;
-                            active: root.page == i;
-                            clicked => { root.page = i; }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    Rectangle {
-                        y: parent.height - 1px;
-                        height: 1px;
-                        background: Palette.border;
+                TabBar {
+                    end-space: 34px;
+                    for title[i] in [@tr("Processes"), @tr("Graphs"), @tr("Services")]: TabItem {
+                        title: title;
+                        active: root.page == i;
+                        clicked => { root.page = i; }
                     }
                 }
                 Rectangle {
@@ -1736,30 +1705,13 @@ export component Main inherits Window {
                     }
                 }
             }
-            // On the right end of the tab headers, on every tab. A fixed square (see the old note: `width: self.height`
-            // stretches the row); the icon is a Path on top, which takes no input, so clicks reach the button.
-            Rectangle {
-                x: parent.width - self.width - 2px;
+            // On the right end of the tab headers, on every tab.
+            MenuButton {
+                x: parent.width - self.width - 4px;
                 y: 2px;
-                width: 28px;
-                height: 28px;
-                Button {
-                    width: 100%;
-                    height: 100%;
-                    accessible-label: @tr("Settings");
-                    clicked => {
-                        root.settings-open = true;
-                    }
-                }
-                Path {
-                    width: 14px;
-                    height: 12px;
-                    viewbox-width: 16;
-                    viewbox-height: 14;
-                    commands: "M 1 1 L 15 1 M 1 7 L 15 7 M 1 13 L 15 13";
-                    stroke: Palette.foreground;
-                    stroke-width: 2px;
-                    stroke-line-cap: round;
+                label: @tr("Preferences");
+                clicked => {
+                    root.settings-open = true;
                 }
             }
             }
@@ -1835,6 +1787,7 @@ export component Main inherits Window {
                     horizontal-stretch: 1;
                 }
                 Text { text: @tr("Refresh"); vertical-alignment: center; }
+                // A ComboBox, not a FilterBar: the segments are ~190 px wider and the bar must fit 640 px in pt_BR.
                 ComboBox {
                     width: 80px;
                     model: ["1 s", "2 s", "5 s"];
@@ -1862,6 +1815,8 @@ export component Main inherits Window {
         group-apps <=> root.group-apps;
         language-index <=> root.language-index;
         language-changed(i) => { root.language-changed(i); }
+        color-scheme-index <=> root.color-scheme-index;
+        theme-changed(i) => { root.theme-changed(i); }
         dismiss => { root.settings-open = false; shortcuts.focus(); }
         // Close Settings first: its branch in `capture-key-pressed` runs before About's, so Escape would miss About.
         about => { root.settings-open = false; root.about-open = true; }

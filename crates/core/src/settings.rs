@@ -1,7 +1,9 @@
 //! User settings in one TOML file under the XDG data dir (`~/.local/share/FastProcMan`).
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+use crate::files::{read_or_backup, write_atomic};
 
 /// Folder name under the XDG data dir.
 pub const APP_DIR: &str = "FastProcMan";
@@ -26,6 +28,8 @@ pub struct Settings {
     pub tree: bool,
     /// In tree mode, group the processes by application (like Mission Center) instead of one plain forest.
     pub group_apps: bool,
+    /// "" follows the system's light or dark mode; otherwise "light" or "dark".
+    pub theme: String,
 }
 
 impl Default for Settings {
@@ -38,6 +42,7 @@ impl Default for Settings {
             cpu_whole_machine: false,
             tree: false,
             group_apps: true,
+            theme: String::new(),
         }
     }
 }
@@ -61,19 +66,8 @@ fn path() -> PathBuf {
 
 impl Settings {
     pub fn load() -> Self {
-        let mut s = match fs::read_to_string(path()) {
-            Ok(text) => parse(&text).unwrap_or_else(|e| {
-                // The file is hand-edited; the next save() must not overwrite what the user wrote.
-                let bad = path().with_extension("toml.bad");
-                eprintln!(
-                    "settings.toml is invalid ({e}); kept as {}, using defaults",
-                    bad.display()
-                );
-                let _ = fs::rename(path(), bad);
-                Settings::default()
-            }),
-            Err(_) => Settings::default(),
-        };
+        // The file is hand-edited; a bad one is moved aside so the next save() must not overwrite what the user wrote.
+        let mut s = read_or_backup(&path(), |t| parse(t).map_err(|e| e.to_string())).0;
         s.normalize();
         s
     }
@@ -95,12 +89,8 @@ impl Settings {
     }
 
     fn try_save(&self) -> std::io::Result<()> {
-        let dir = data_dir();
-        fs::create_dir_all(&dir)?;
         let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
-        let tmp = dir.join("settings.toml.tmp");
-        fs::write(&tmp, text)?;
-        fs::rename(&tmp, path())
+        write_atomic(&path(), text)
     }
 }
 
@@ -124,6 +114,14 @@ mod tests {
         s.interval_secs = 5;
         s.normalize();
         assert_eq!(s.interval_secs, 5);
+    }
+
+    #[test]
+    fn theme_defaults_to_the_system_and_loads_when_set() {
+        let old: Settings = toml::from_str("width = 700").unwrap();
+        assert_eq!(old.theme, "");
+        let dark: Settings = toml::from_str("theme = \"dark\"").unwrap();
+        assert_eq!(dark.theme, "dark");
     }
 
     #[test]

@@ -28,13 +28,13 @@ Use a throwaway key folder so your own GPG keys are not touched.
 flatpak/new-signing-key.sh
 ```
 
-It makes the pair in a temporary keyring (your own GPG keys are not touched), writes `flatpak/signing-key.b64`, writes the private key to `~/.local/share/fastprocman-flatpak-signing.asc` (or the path you pass as an argument), checks that the two match, deletes the temporary keyring and prints the next steps. It refuses to run if `signing-key.b64` already exists. Commit `flatpak/signing-key.b64`. Never commit the private file.
+It makes the pair in a temporary keyring (your own GPG keys are not touched), writes `flatpak/signing-key.b64`, writes the private key to `~/.local/share/fastprocman-flatpak-private-signing.asc` (or the path you pass as an argument), checks that the two match, deletes the temporary keyring and prints the next steps. It refuses to run if `signing-key.b64` already exists. Commit `flatpak/signing-key.b64`. Never commit the private file.
 
 ### 2. Store the private key as a GitHub secret
 
 A *secret* is a value GitHub keeps for the repository: workflows can read it, but nobody can view it afterwards (you can only replace it). The name must be exactly `FLATPAK_GPG_PRIVATE_KEY`, because `flatpak.yml` reads it by that name.
 
-**With the website:** repository **Settings** → **Secrets and variables** → **Actions** → **New repository #### With the website
+#### With the website
 
 1. Open the repository on GitHub → **Settings** → **Secrets and variables** → **Actions**.
 2. Click **New repository secret**.

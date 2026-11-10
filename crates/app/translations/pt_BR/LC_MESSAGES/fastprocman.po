@@ -4,10 +4,6 @@ msgstr ""
 "Language: pt_BR\n"
 
 msgctxt "Tr"
-msgid "Version {}"
-msgstr "Versão {}"
-
-msgctxt "Tr"
 msgid "1 process"
 msgstr "1 processo"
 
@@ -92,20 +88,20 @@ msgid "Read {}  Write {}"
 msgstr "Leitura {}  Escrita {}"
 
 msgctxt "Tr"
-msgid "⚠ {} of memory left: opening another big app may freeze the system"
-msgstr "⚠ Restam {} de memória: abrir outro programa grande pode travar o sistema"
+msgid "{} of memory left: opening another big app may freeze the system"
+msgstr "Restam {} de memória: abrir outro programa grande pode travar o sistema"
 
 msgctxt "Tr"
-msgid "⚠ Low memory: {} left"
-msgstr "⚠ Pouca memória: restam {}"
+msgid "Low memory: {} left"
+msgstr "Pouca memória: restam {}"
 
 msgctxt "Tr"
-msgid "⚠ Disk is busy"
-msgstr "⚠ Disco ocupado"
+msgid "Disk is busy"
+msgstr "Disco ocupado"
 
 msgctxt "Tr"
-msgid "⚠ CPU overloaded"
-msgstr "⚠ CPU sobrecarregada"
+msgid "CPU overloaded"
+msgstr "CPU sobrecarregada"
 
 msgctxt "Tr"
 msgid "Asked {} to quit"
@@ -475,21 +471,41 @@ msgctxt "About"
 msgid "A light and fast process manager built with Rust and Slint."
 msgstr "Um gerenciador de processos leve e rápido feito com Rust e Slint."
 
-msgctxt "About"
-msgid "Website"
-msgstr "Site"
+msgctxt "AboutCard"
+msgid "Version {}"
+msgstr "Versão {}"
 
-msgctxt "About"
+msgctxt "AboutCard"
+msgid "Author: {}"
+msgstr "Autor: {}"
+
+msgctxt "AboutCard"
+msgid "License: {}"
+msgstr "Licença: {}"
+
+msgctxt "AboutCard"
 msgid "Close"
 msgstr "Fechar"
 
 msgctxt "ProcessesPage"
-msgid "Settings"
-msgstr "Configurações"
+msgid "Preferences"
+msgstr "Preferências"
 
 msgctxt "Settings"
-msgid "Settings"
-msgstr "Configurações"
+msgid "Preferences"
+msgstr "Preferências"
+
+msgctxt "Settings"
+msgid "Appearance"
+msgstr "Aparência"
+
+msgctxt "Settings"
+msgid "Light"
+msgstr "Claro"
+
+msgctxt "Settings"
+msgid "Dark"
+msgstr "Escuro"
 
 msgctxt "Settings"
 msgid "About"
@@ -612,8 +628,8 @@ msgid "Filter by service name (Ctrl+F)"
 msgstr "Filtrar por nome do serviço (Ctrl+F)"
 
 msgctxt "ServicesPage"
-msgid "All statuses"
-msgstr "Todos os estados"
+msgid "All"
+msgstr "Todos"
 
 msgctxt "ServicesPage"
 msgid "All startups"

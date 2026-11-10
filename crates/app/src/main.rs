@@ -21,6 +21,7 @@ slint::include_modules!();
 mod fixtures;
 mod host;
 mod icons;
+mod instance;
 mod svc;
 
 /// Samples kept per chart: 60 x the refresh interval (1 minute at the default 1 s).
@@ -1064,6 +1065,13 @@ fn main() {
     if std::env::args().skip(1).any(|a| a == "-V" || a == "--version") {
         return println!("fastprocman {}", env!("CARGO_PKG_VERSION"));
     }
+    // Fixtures (scripts/ui-snapshot.sh) never touch a real running instance.
+    let fixture_run = fixtures::mode().is_some();
+    // One window: a copy is already open, so it comes to the front and this one leaves before setting anything up.
+    // Before `host::run`, so a second Flatpak start does not spawn another host copy.
+    if !fixture_run && instance::send("show") {
+        return;
+    }
     // In a Flatpak this relaunches the app on the host, where /proc shows every process. It has to come before
     // any Slint object exists, and falls back to the sandbox when the host cannot be reached.
     let host_failed = match host::run() {
@@ -1080,6 +1088,16 @@ fn main() {
 
     let settings = Rc::new(RefCell::new(Settings::load()));
     let ui = Main::new().unwrap();
+    // Take the socket now that the window exists; a later start sends "show" and this window is raised.
+    if !fixture_run {
+        let weak = ui.as_weak();
+        let raise = move |_command: String| {
+            let _ = weak.upgrade_in_event_loop(|ui| instance::raise(ui.window()));
+        };
+        if instance::claim("show", raise) {
+            return;
+        }
+    }
     apply_language(&settings.borrow());
     ui.set_language_index(
         LANGUAGES
@@ -1087,6 +1105,7 @@ fn main() {
             .position(|l| *l == settings.borrow().language)
             .unwrap_or(0) as i32,
     );
+    ui.set_color_scheme_index(theme_index(&settings.borrow().theme));
     ui.set_rows(ModelRc::from(APP.with_borrow(|s| s.model.clone())));
     ui.set_graphs(ModelRc::from(APP.with_borrow(|s| s.graphs.clone())));
     ui.set_interval_index(
@@ -1256,6 +1275,17 @@ fn main() {
             });
         }
     });
+    // Saved as soon as it changes, like the other options. The window already shows the new mode (`color-scheme-index`).
+    ui.on_theme_changed({
+        let settings = settings.clone();
+        move |i| {
+            let Some(theme) = usize::try_from(i).ok().and_then(|i| THEMES.get(i)) else {
+                return;
+            };
+            settings.borrow_mut().theme = theme.to_string();
+            settings.borrow().save();
+        }
+    });
     ui.on_cpu_scope_changed({
         let (weak, settings) = (weak.clone(), settings.clone());
         move |whole| {
@@ -1271,12 +1301,15 @@ fn main() {
     });
     ui.set_version(env!("CARGO_PKG_VERSION").into());
     ui.on_open_website(|| {
-        if let Err(e) = std::process::Command::new("xdg-open")
-            .arg(env!("CARGO_PKG_REPOSITORY"))
-            .spawn()
-        {
-            eprintln!("cannot open the website: {e}");
-        }
+        // Waiting in a thread reaps the child; a dropped `Child` would stay a zombie until exit.
+        std::thread::spawn(|| {
+            if let Err(e) = std::process::Command::new("xdg-open")
+                .arg(env!("CARGO_PKG_REPOSITORY"))
+                .status()
+            {
+                eprintln!("cannot open the website: {e}");
+            }
+        });
     });
 
     // With fixtures (scripts/ui-snapshot.sh) nothing is sampled, so the real system is never read or changed.
@@ -1385,8 +1418,16 @@ fn main() {
     slint::run_event_loop().unwrap();
 }
 
-/// What the Settings language box offers, in its order: `""` follows the system, then the bundled languages.
+/// What the Preferences language box offers, in its order: `""` follows the system, then the bundled languages.
 const LANGUAGES: [&str; 3] = ["", "en", "pt_BR"];
+
+/// `settings.theme` for each entry of the Appearance box: system, light, dark.
+const THEMES: [&str; 3] = ["", "light", "dark"];
+
+/// The Appearance box index of a `settings.theme` value; anything unknown follows the system.
+fn theme_index(theme: &str) -> i32 {
+    THEMES.iter().position(|t| *t == theme).unwrap_or(0) as i32
+}
 
 /// Selects the language now. A locale with no translation (`de_DE`, or `en_US`) falls back to English explicitly:
 /// Slint keeps the previous language on an error, which would leave Portuguese on screen after choosing System.
@@ -1421,6 +1462,14 @@ mod tests {
         let a = area(&q, 100.0);
         assert!(a.starts_with("M 58.0 100.0 "), "{a}");
         assert!(a.ends_with("L 59 100 L 58 100 Z"), "{a}");
+    }
+
+    #[test]
+    fn themes_and_their_indexes_agree() {
+        for (i, t) in THEMES.iter().enumerate() {
+            assert_eq!(theme_index(t), i as i32);
+        }
+        assert_eq!(theme_index("bogus"), 0);
     }
 
     #[test]

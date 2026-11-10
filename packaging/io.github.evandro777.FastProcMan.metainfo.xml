@@ -15,9 +15,9 @@
   <launchable type="desktop-id">io.github.evandro777.FastProcMan.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.1.1" date="2026-11-07">
+    <release version="0.1.2" date="2026-11-10">
       <description>
-        <p>First release.</p>
+        <p>Add single-instance mode, theme setting and UI kit; cap pkexec wait</p>
       </description>
     </release>
   </releases>

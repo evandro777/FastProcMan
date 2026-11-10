@@ -562,8 +562,14 @@ impl Signal {
     }
 }
 
+/// How long the polkit dialog may stay open before it is cancelled.
+const PKEXEC_WAIT_SECS: &str = "60";
+
 /// Guards against PID reuse and the table re-sorting under the cursor.
-/// Only checked before acting: with pkexec the polkit dialog can stay open for a long time after this.
+/// shortcut: only checked before acting. With pkexec the dialog can stay open, and if the target exits meanwhile and
+/// its PID is reused, root signals the new process. `PKEXEC_WAIT_SECS` caps that window (a forgotten dialog was the
+/// realistic case). Closing it fully needs a root helper that re-checks and signals through a pidfd (pkexec drops open
+/// file descriptors, so the app cannot hand one over); upgrade only if a wrong signal is ever seen.
 fn same_process(pid: u32, start: u64) -> bool {
     parse_stat(&read(&format!("/proc/{pid}/stat"))).is_some_and(|(_, _, s, _, _)| s == start)
 }
@@ -588,7 +594,8 @@ fn run_with_pkexec(tool: &str, args: &[String]) -> Result<(), KillError> {
     if !(err.contains("not permitted") || err.contains("Permission denied")) {
         return Err(KillError::Failed(err));
     }
-    let out = Command::new("pkexec")
+    let out = Command::new("timeout")
+        .args([PKEXEC_WAIT_SECS, "pkexec"])
         .env("LC_ALL", "C")
         .arg(tool)
         .args(args)
@@ -597,12 +604,13 @@ fn run_with_pkexec(tool: &str, args: &[String]) -> Result<(), KillError> {
     pkexec_result(out.status.code(), String::from_utf8_lossy(&out.stderr).trim())
 }
 
-/// Maps pkexec's exit code. Only 126 is a dismissed dialog; 127 also means "no authentication agent", "not
-/// authorized" or a failed launch, so it stays a failure with pkexec's own message.
+/// Maps pkexec's exit code (or `timeout`'s). 126 is a dismissed dialog and 124 one left open for `PKEXEC_WAIT_SECS`;
+/// 127 also means "no authentication agent", "not authorized" or a failed launch, so it stays a failure with pkexec's
+/// own message.
 fn pkexec_result(code: Option<i32>, err: &str) -> Result<(), KillError> {
     match code {
         Some(0) => Ok(()),
-        Some(126) => Err(KillError::Cancelled),
+        Some(124 | 126) => Err(KillError::Cancelled),
         // The process can exit while the polkit dialog is open.
         _ if err.contains("No such process") => Err(KillError::Exited),
         _ => Err(KillError::Failed(err.to_string())),
@@ -916,6 +924,8 @@ mod tests {
     fn pkexec_exit_codes_map_to_results() {
         assert_eq!(pkexec_result(Some(0), ""), Ok(()));
         assert_eq!(pkexec_result(Some(126), ""), Err(KillError::Cancelled));
+        // A dialog left open too long: `timeout` ends pkexec with 124.
+        assert_eq!(pkexec_result(Some(124), ""), Err(KillError::Cancelled));
         // No polkit agent: must not look like a cancel.
         assert_eq!(
             pkexec_result(Some(127), "No authentication agent found."),
@@ -923,6 +933,18 @@ mod tests {
         );
         assert_eq!(pkexec_result(Some(1), "kill: No such process"), Err(KillError::Exited));
         assert_eq!(pkexec_result(None, "x"), Err(KillError::Failed("x".into())));
+    }
+
+    /// The cap relies on `timeout` ending its command with exit code 124.
+    #[test]
+    fn a_command_over_the_time_limit_exits_with_124() {
+        let _g = spawn_lock();
+        let code = Command::new("timeout")
+            .args(["0.2", "sleep", "5"])
+            .status()
+            .unwrap()
+            .code();
+        assert_eq!(pkexec_result(code, ""), Err(KillError::Cancelled));
     }
 
     #[test]

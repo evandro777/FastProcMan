@@ -43,13 +43,15 @@ fn arch_names() -> Option<(&'static str, &'static str)> {
 }
 
 /// The `flatpak-spawn` arguments. `--watch-bus` ends the host copy when this sandbox goes away.
-/// `data_home` is forwarded so both copies share one settings file (`$XDG_DATA_HOME/FastProcMan`).
-fn spawn_args(app: &str, runtime: &str, data_home: Option<&str>) -> Option<Vec<String>> {
+/// `data_home` is forwarded so both copies share one settings file (`$XDG_DATA_HOME/FastProcMan`), and `flatpak_id`
+/// so the host copy listens on the socket the sandbox's `instance::send` looks for (`$XDG_RUNTIME_DIR/app/<id>/`).
+fn spawn_args(app: &str, runtime: &str, data_home: Option<&str>, flatpak_id: &str) -> Option<Vec<String>> {
     let (triple, loader) = arch_names()?;
     let mut args = vec![
         "--host".to_string(),
         "--watch-bus".to_string(),
         format!("--env={MARKER}=1"),
+        format!("--env=FLATPAK_ID={flatpak_id}"),
     ];
     if let Some(dir) = data_home {
         args.push(format!("--env=XDG_DATA_HOME={dir}"));
@@ -67,7 +69,8 @@ fn spawn_args(app: &str, runtime: &str, data_home: Option<&str>) -> Option<Vec<S
 
 pub fn run() -> Outcome {
     // `starts_with` also takes the `.Devel` build.
-    let ours = std::env::var("FLATPAK_ID").is_ok_and(|id| id.starts_with(APP_ID));
+    let id = std::env::var("FLATPAK_ID").unwrap_or_default();
+    let ours = id.starts_with(APP_ID);
     if !ours || std::env::var_os(MARKER).is_some() {
         return Outcome::NotNeeded;
     }
@@ -75,7 +78,7 @@ pub fn run() -> Outcome {
         return Outcome::NotNeeded;
     };
     let data_home = std::env::var("XDG_DATA_HOME").ok();
-    let Some(args) = parse_paths(&info).and_then(|(app, runtime)| spawn_args(app, runtime, data_home.as_deref()))
+    let Some(args) = parse_paths(&info).and_then(|(app, runtime)| spawn_args(app, runtime, data_home.as_deref(), &id))
     else {
         return Outcome::Failed;
     };
@@ -106,11 +109,12 @@ mod tests {
 
     #[test]
     fn spawn_args_use_the_runtime_loader_and_no_display_variables() {
-        let Some(args) = spawn_args("/app/files", "/rt/files", Some("/home/u/.var/app/x/data")) else {
+        let Some(args) = spawn_args("/app/files", "/rt/files", Some("/home/u/.var/app/x/data"), APP_ID) else {
             return; // an architecture the runtime has no loader name for
         };
         assert_eq!(&args[..2], ["--host", "--watch-bus"]);
         assert!(args.contains(&format!("--env={MARKER}=1")));
+        assert!(args.contains(&format!("--env=FLATPAK_ID={APP_ID}")));
         assert!(args.contains(&"--env=XDG_DATA_HOME=/home/u/.var/app/x/data".to_string()));
         assert!(
             args.iter()
