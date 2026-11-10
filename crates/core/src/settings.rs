@@ -84,7 +84,7 @@ impl Default for Settings {
         Self {
             language: String::new(),
             width: 860,
-            height: 560,
+            height: 620,
             interval_secs: 1,
             cpu_whole_machine: false,
             tree: false,

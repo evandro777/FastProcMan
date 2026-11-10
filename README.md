@@ -49,26 +49,26 @@ Measured on Linux Mint (Cinnamon, X11), 16 threads, an NVIDIA GPU (which adds ab
 
 #### Install from file (no updates)
 
+A `.flatpak` file downloaded from Releases is a one-off install: to get automatic updates, go to [Install with automatic updates](<#Install with automatic updates>).
+
 Download `FastProcMan-<version>-x86_64.flatpak` from [Releases](https://github.com/evandro777/FastProcMan/releases), then execute:
 
 ```bash
 flatpak install --user ~/Downloads/FastProcMan-<version>-x86_64.flatpak
 ```
 
-Installing from file, will not auto update.
-
 #### Install with automatic updates
 
-Every release is also published as a Flatpak remote, so `flatpak update` (or your software centre) keeps FastProcMan current. A `.flatpak` file downloaded from Releases is a one-off install: to get updates, add the remote below.
+This app is not in Flathub yet. You need to add this repository as a remote. Every release is also published as a Flatpak remote, so `flatpak update` (or your software centre) keeps the app updated.
 
 ```bash
 flatpak remote-add --system --if-not-exists fastprocman https://evandro777.github.io/FastProcMan/fastprocman.flatpakrepo
 flatpak install --system fastprocman io.github.evandro777.FastProcMan
 ```
 
-**`--system` vs `--user` matters for updates.** Linux Mint's Update Manager (and probably other software centres) only looks at *system-wide* Flatpaks; a `--user` install never appears there. With `--user`, update by hand: `flatpak update --user` (a plain `flatpak update` only checks the system installation).
+**`--system` vs `--user` matters for updates.** Linux Mint's Update Manager (and probably other software centres) only looks at *system-wide* Flatpaks; With `--user`, update by hand: `flatpak update --user`.
 
-The remote is GPG-signed (system-wide installs refuse unsigned remotes), but the key lives in this same repository, so it is only as trustworthy as the repository it is built from. It needs the Flathub remote for the runtime (`flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo`, with `--system` or `--user` to match).
+The remote is GPG-signed (system-wide installs refuse unsigned remotes), but the key lives in this same repository. It needs the Flathub remote for the runtime (`flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo`, with `--system` or `--user` to match).
 
 ### AppImage (with delta updates)
 

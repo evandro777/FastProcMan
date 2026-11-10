@@ -1424,7 +1424,7 @@ fn main() {
             slint::CloseRequestResponse::HideWindow
         });
     }
-    // A window tall enough for every Graphs card, which the 560 px default scrolls.
+    // A window tall enough for every Graphs card, which the 700 px default scrolls.
     if std::env::var("FASTPROCMAN_PAGE").as_deref() == Ok("graphs-tall") {
         ui.window().set_size(slint::LogicalSize::new(860.0, 1150.0));
     }
