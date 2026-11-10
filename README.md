@@ -89,7 +89,7 @@ The AppImage does not update itself, but it has update information built in, so 
 
 ## Other FastApps
 
-- [FastPaste](https://github.com/evandro777/FastPaste): Tiny clipboard history for Linux. Written in Rust with Slint.
+- [FastClipboard](https://github.com/evandro777/FastClipboard): Tiny clipboard history for Linux. Written in Rust with Slint.
 - [FastMoji](https://github.com/evandro777/FastMoji): Popup emoji picker light and fast. Written in Rust with Slint.
 
 ## Contributing and releases

@@ -89,7 +89,7 @@ fn listen_at(path: &Path, on_command: impl Fn(String) + Send + 'static) -> std::
 }
 
 /// Brings a plain window back in front of the others: un-minimize, show, and ask the window manager for focus.
-/// The popups (FastPaste, FastMoji) have their own focus handling and never call it.
+/// The popups (FastClipboard, FastMoji) have their own focus handling and never call it.
 #[allow(dead_code)]
 pub fn raise(window: &slint::Window) {
     use slint::winit_030::WinitWindowAccessor;
