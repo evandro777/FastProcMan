@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-const MAX_COMMAND: u64 = 64;
+const MAX_COMMAND: u64 = 4200;
 
 /// `<crate name>.sock` in the runtime directory. None without `XDG_RUNTIME_DIR`: a shared directory such as `/tmp`
 /// would let other users block the socket or send commands to it.
