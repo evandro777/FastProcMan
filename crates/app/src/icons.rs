@@ -94,7 +94,13 @@ impl Index {
         } else {
             dirs
         };
-        let mut shares = vec![data_home, home.join(".local/share/flatpak/exports/share")];
+        // The Flatpak build forwards its sandbox `XDG_DATA_HOME` to the host copy (shared settings), so the user's real
+        // `~/.local/share` (AppImage launchers) must be listed too; a duplicate is harmless (`seen` dedups by file name).
+        let mut shares = vec![
+            data_home,
+            home.join(".local/share"),
+            home.join(".local/share/flatpak/exports/share"),
+        ];
         shares.extend(dirs.split(':').filter(|d| !d.is_empty()).map(PathBuf::from));
         shares.push("/var/lib/flatpak/exports/share".into());
         let desktop: Vec<PathBuf> = shares.iter().map(|s| s.join("applications")).collect();

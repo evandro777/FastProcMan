@@ -23,6 +23,7 @@ Just start typing to filter by name or PID (`Ctrl+F` also focuses the box); `Esc
 The `Menu` key or `Shift+F10` opens the same menu for the selected row.
 
 - **Quit…** (asks the program to close, SIGTERM, `Delete`, also a button in the bottom bar when the tree is off) and **Force quit…** (stops it at once, SIGKILL, `Shift+Delete`; for a program that does not respond) always ask for confirmation first. Your own processes are signalled directly; for other users' processes the app falls back to `pkexec`, so polkit asks for the password (the prompt is cancelled after 60 seconds). The process is checked again right before the signal (before the password prompt, for other users' processes), so a re-sorted table or a reused PID does not kill the wrong one. PID 1 and FastProcMan itself are refused.
+- **Children:** when the process has children, the confirmation shows "Also include its N child processes", ticked each time (`Space` flips it). Quit and Force quit then signal the process and everything under it in one go, parent first so a program that restarts workers (`xargs`, `make`) is gone before they are signalled; one password prompt covers all of them. Untick it to end only that process. The list is read from `/proc` at the moment you confirm; PID 1 and FastProcMan itself are never in it, and a child started after that moment is missed.
 - **Suspend / Resume** (SIGSTOP / SIGCONT).
 - **Priority:** very high (-10), high (-5), normal (0), low (5) or very low (19). Raising the priority needs `pkexec`.
 - **Properties:** parent PID, state, threads, priority, running time, memory, resident memory, shared memory, virtual memory, disk read and written since start, program, command line and working folder (selectable text). What the system hides from you, for example another user's program path, shows as "Unavailable". The values update while it is open, and `Esc` closes it.
@@ -52,7 +53,7 @@ A banner above the tabs warns before the system freezes.
 The ☰ button at the top right of the Processes tab, or `Ctrl+,`; **About** is a button inside it.
 
 - **CPU % of the whole machine.** Off by default: the CPU % of a process is per core, as in `top` (100 = one core, so a busy process can pass 100). On: 100 = all cores together. Saved as `cpu_whole_machine` in `settings.toml`. The CPU graph is always the whole machine.
-- **Slowdown warning.** Six numbers: free memory under 20% (amber) and under 10% (red); memory stall above 10%, disk stall above 20%, CPU stall above 60% (all red); and the CPU a process must use to be blamed (50 = half a core, always per core). They apply on the next refresh and **Reset warnings** restores these defaults. Saved in the `[alerts]` table of `settings.toml` (`mem_watch_pct`, `mem_danger_pct`, `psi_mem`, `psi_io`, `psi_cpu`, `cpu_culprit_min`); each value is kept in range, and a danger limit above the watch limit counts as the watch limit. A higher stall limit or CPU floor warns less; a higher free-memory limit warns more.
+- **Slowdown warning.** Six numbers: free memory under 20% (amber) and under 10% (red); memory stall above 10%, disk stall above 20%, CPU stall above 60% (all red); and the CPU a process must use to be blamed (50 = half a core, always per core). They apply on the next refresh and **Reset warnings** restores these defaults. Saved in the `[alerts]` table of `settings.toml` (`mem_watch_pct`, `mem_danger_pct`, `psi_mem`, `psi_io`, `psi_cpu`, `cpu_culprit_min`); each value is kept in range, and a danger limit above the watch limit counts as the watch limit. The CPU warning also shows in amber when the whole machine stays at 95% or more for 3 samples in a row (a load that just fills the cores queues little, so the stall figure stays low). It names the job at the top of the busy tree (`make` or `cargo`, not each worker, never a shell, terminal or session) with the CPU of everything under it; End still signals only that process. A higher stall limit or CPU floor warns less; a higher free-memory limit warns more.
 - **Language:** follows the system or picks English or Brazilian Portuguese, and applies at once.
 - The window size is remembered too (saved as `width` and `height` when the window closes, not while it is maximized or fullscreen).
 
@@ -60,13 +61,13 @@ The ☰ button at the top right of the Processes tab, or `Ctrl+,`; **About** is 
 
 The last 60 samples (one minute at the default 1 s), refreshed every 1 (default), 2 or 5 seconds (**Refresh** at the bottom), in cards that scroll when they do not fit:
 
-- **CPU** (the whole machine in colour, one faint line per logical core behind it),
-- **Memory** (with a swap line and its own figures when the system has swap),
+- **CPU** (the whole machine in colour, and each logical core's current load as numbers under the title: `0: 17%  1: 50% …`, at most four rows),
+- **Memory** (with a swap line and its own figures when the system has swap; a small pie beside the memory figure, and one beside the swap figure, shows how full each is, in the colour of its line),
 - **Network** (download/upload),
 - one **GPU** card per graphics card (processing, video encode, video decode and video memory),
 - one **Disk** card per physical disk (read/write).
 
-Network and disks count physical devices only. The GPU card needs the NVIDIA driver (read through its `libnvidia-ml.so.1`, loaded only if present) or an AMD card (sysfs; no encode/decode figures); without either there is no GPU card, and Intel graphics are not supported.
+Network and disks count physical devices only. The GPU card needs the NVIDIA driver (read through its `libnvidia-ml.so.1`, loaded only if present) an AMD card (sysfs; no encode/decode figures) or Intel graphics (i915 or xe: load only, no memory, summed from the GPU time each process has used, so processes of other users are not counted); without any of them there is no GPU card.
 
 ## Services tab
 

@@ -1,9 +1,12 @@
 //! GPU load and video memory. NVIDIA through NVML, loaded at run time with `dlopen` (no crate, no link-time
-//! dependency: a machine without the driver simply has no GPU card); AMD through sysfs. Intel is not supported.
+//! dependency: a machine without the driver simply has no GPU card); AMD through sysfs; Intel (i915 and xe) through the
+//! DRM client counters in `/proc/<pid>/fdinfo`, load only (an integrated card has no video memory of its own).
 use std::{
+    collections::{BTreeMap, HashMap},
     ffi::{CStr, c_char, c_int, c_uint, c_void},
     fs,
     path::Path,
+    time::Instant,
 };
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -135,6 +138,7 @@ pub struct Reader {
     last: Vec<GpuStats>,
     /// The AMD cards of the previous reading, for the same purpose.
     last_amd: Vec<GpuStats>,
+    intel: Intel,
 }
 
 impl Default for Reader {
@@ -149,6 +153,7 @@ impl Reader {
             nvml: Nvml::open(),
             last: Vec::new(),
             last_amd: Vec::new(),
+            intel: Intel::new(Path::new(DRM)),
         }
     }
 
@@ -169,8 +174,144 @@ impl Reader {
         }
         self.last_amd = read_amd(Path::new(DRM), &self.last_amd);
         out.extend(self.last_amd.iter().cloned());
+        out.extend(self.intel.read(Path::new("/proc")));
         out
     }
+}
+
+/// `(drm-pdev, drm-client-id, engine class)`.
+type Key = (String, u64, String);
+/// Engine time used so far: ns (i915) or cycles (xe), and xe's `drm-total-cycles` for the same class.
+type Count = (u64, Option<u64>);
+
+/// Intel cards: no load file in sysfs, so the load is the sum, over every DRM client we are allowed to see, of the
+/// engine time it has used since the last tick. `intel_gpu_top` reads the same thing through perf, which needs root.
+struct Intel {
+    /// `(N of cardN, PCI address as fdinfo's drm-pdev spells it)`, listed once: empty on every other machine, and then
+    /// `/proc` is never scanned.
+    cards: Vec<(u32, String)>,
+    prev: HashMap<Key, Count>,
+    at: Option<Instant>,
+}
+
+impl Intel {
+    fn new(drm: &Path) -> Intel {
+        let name = |p: std::path::PathBuf| fs::read_link(p).ok()?.file_name()?.to_str().map(String::from);
+        let mut cards: Vec<_> = fs::read_dir(drm)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let idx: u32 = e.file_name().to_str()?.strip_prefix("card")?.parse().ok()?;
+                let dev = e.path().join("device");
+                matches!(name(dev.join("driver"))?.as_str(), "i915" | "xe").then_some(())?;
+                Some((idx, name(dev)?))
+            })
+            .collect();
+        cards.sort();
+        Intel {
+            cards,
+            prev: HashMap::new(),
+            at: None,
+        }
+    }
+
+    fn read(&mut self, proc: &Path) -> Vec<GpuStats> {
+        if self.cards.is_empty() {
+            return Vec::new();
+        }
+        let now = Instant::now();
+        let wall = self.at.replace(now).map_or(0, |t| (now - t).as_nanos() as u64);
+        self.step(proc, wall)
+    }
+
+    /// `wall` is the nanoseconds since the previous reading; 0 on the first one, which therefore reads 0 load.
+    fn step(&mut self, proc: &Path, wall: u64) -> Vec<GpuStats> {
+        let cur = scan(proc);
+        let out = self
+            .cards
+            .iter()
+            .map(|(idx, pdev)| {
+                // Per engine class: (time used by all clients, time available). A client first seen this tick has no
+                // previous count and adds nothing, like a new network adapter.
+                let mut classes: HashMap<&str, (u64, u64)> = HashMap::new();
+                for (k, (v, total)) in cur.iter().filter(|(k, _)| k.0 == *pdev) {
+                    let Some((pv, ptotal)) = self.prev.get(k) else { continue };
+                    let c = classes.entry(&k.2).or_default();
+                    c.0 += v.saturating_sub(*pv);
+                    let avail = match (total, ptotal) {
+                        (Some(a), Some(b)) => a.saturating_sub(*b),
+                        _ => wall,
+                    };
+                    c.1 = c.1.max(avail);
+                }
+                // The busiest class stands for the card (render is what a desktop uses; video would be one more).
+                let busy = classes
+                    .values()
+                    .filter(|c| c.1 > 0)
+                    .map(|c| c.0 as f64 / c.1 as f64 * 100.0);
+                GpuStats {
+                    name: format!("GPU {idx}"),
+                    busy: busy.fold(0.0, f64::max).min(100.0) as f32,
+                    ..Default::default()
+                }
+            })
+            .collect();
+        self.prev = cur;
+        out
+    }
+}
+
+/// Every DRM client of every process we can read. A client shared by dup'd or inherited fds has one key, so it is
+/// counted once. shortcut: other users' processes are unreadable and missing from the load; a root helper would fix it.
+fn scan(proc: &Path) -> HashMap<Key, Count> {
+    let mut out = HashMap::new();
+    for p in fs::read_dir(proc).into_iter().flatten().flatten() {
+        if !p
+            .file_name()
+            .to_str()
+            .is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit()))
+        {
+            continue;
+        }
+        for fd in fs::read_dir(p.path().join("fd")).into_iter().flatten().flatten() {
+            if !fs::read_link(fd.path()).is_ok_and(|l| l.starts_with("/dev/dri/")) {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(p.path().join("fdinfo").join(fd.file_name())) else {
+                continue;
+            };
+            if let Some((pdev, client, classes)) = parse_fdinfo(&text) {
+                for (class, count) in classes {
+                    out.insert((pdev.clone(), client, class), count);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// i915: `drm-engine-<class>: <ns> ns`. xe: `drm-cycles-<class>: <n>` with `drm-total-cycles-<class>: <n>`.
+/// `drm-engine-capacity-<class>` is a count of engines, not a time.
+fn parse_fdinfo(text: &str) -> Option<(String, u64, BTreeMap<String, Count>)> {
+    let (mut pdev, mut client, mut classes) = (None, None, BTreeMap::<String, Count>::new());
+    for (k, v) in text.lines().filter_map(|l| l.split_once(':')) {
+        let n = || v.split_whitespace().next()?.parse::<u64>().ok();
+        match k {
+            "drm-pdev" => pdev = Some(v.trim().to_string()),
+            "drm-client-id" => client = n(),
+            _ => {
+                if let Some(c) = k.strip_prefix("drm-total-cycles-") {
+                    classes.entry(c.into()).or_default().1 = n();
+                } else if let Some(c) = k.strip_prefix("drm-cycles-").or(k.strip_prefix("drm-engine-"))
+                    && !c.starts_with("capacity-")
+                {
+                    classes.entry(c.into()).or_default().0 = n()?;
+                }
+            }
+        }
+    }
+    Some((pdev?, client?, classes))
 }
 
 /// True when there is at least one card of `vendor` and every one is runtime-suspended.
@@ -290,6 +431,54 @@ mod tests {
         let unreadable = asleep(&root, "0x10de");
         let _ = fs::remove_dir_all(&root);
         assert!(sleeping && !active && !unreadable);
+    }
+
+    #[test]
+    fn intel_load_from_fdinfo_counts_a_client_once_and_ignores_other_files() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("fpm-intel-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let pci = root.join("pci/0000:00:02.0");
+        fs::create_dir_all(&pci).unwrap();
+        symlink("/x/drivers/i915", pci.join("driver")).unwrap();
+        fs::create_dir_all(root.join("drm/card0-eDP-1")).unwrap();
+        fs::create_dir_all(root.join("drm/card0")).unwrap();
+        symlink(&pci, root.join("drm/card0/device")).unwrap();
+        let proc = root.join("proc");
+        // pid 10 has the client twice (fd 3 and a dup, fd 5) and an unrelated file with the same counters (fd 4).
+        for (fd, link) in [(3, "/dev/dri/renderD128"), (5, "/dev/dri/card0"), (4, "/dev/null")] {
+            fs::create_dir_all(proc.join("10/fd")).unwrap();
+            fs::create_dir_all(proc.join("10/fdinfo")).unwrap();
+            symlink(link, proc.join(format!("10/fd/{fd}"))).unwrap();
+        }
+        let info = |ns: u64| {
+            format!(
+                "drm-pdev:\t0000:00:02.0\ndrm-client-id:\t7\ndrm-engine-render:\t{ns} ns\ndrm-engine-capacity-render:\t1\n"
+            )
+        };
+        let write = |ns: u64| {
+            for fd in [3, 4, 5] {
+                fs::write(proc.join(format!("10/fdinfo/{fd}")), info(ns)).unwrap();
+            }
+        };
+        let mut intel = Intel::new(&root.join("drm"));
+        assert_eq!(intel.cards, vec![(0, "0000:00:02.0".to_string())]);
+        write(1_000);
+        assert_eq!(intel.step(&proc, 0)[0].busy, 0.0); // first reading: nothing to subtract yet
+        write(1_000 + 250_000_000);
+        let got = intel.step(&proc, 1_000_000_000);
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(got[0].name, "GPU 0");
+        assert_eq!(got[0].busy, 25.0);
+        assert_eq!(got[0].mem_total, 0);
+    }
+
+    #[test]
+    fn xe_fdinfo_uses_its_own_total_cycles() {
+        let t = "drm-pdev: 0000:00:02.0\ndrm-client-id: 3\ndrm-cycles-rcs: 50\ndrm-total-cycles-rcs: 400\n";
+        let (pdev, id, c) = parse_fdinfo(t).unwrap();
+        assert_eq!((pdev.as_str(), id, c["rcs"]), ("0000:00:02.0", 3, (50, Some(400))));
+        assert!(parse_fdinfo("drm-engine-render: 5 ns\n").is_none()); // no pdev/client: not usable
     }
 
     /// Manual: compare with `nvidia-smi --query-gpu=utilization.gpu,utilization.encoder,utilization.decoder,memory.used,memory.total --format=csv`.
