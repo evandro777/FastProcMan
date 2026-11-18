@@ -47,6 +47,11 @@ pub struct Proc {
     pub ppid: u32,
     /// Target of `/proc/<pid>/exe`; `None` for kernel threads and other users' processes. Used to find the icon.
     pub exe: Option<String>,
+    /// Process group, session and whether it has a controlling terminal (`stat` fields 5 to 7): what tells a job a
+    /// shell started (its own group) from a desktop app (the session's group).
+    pub pgrp: u32,
+    pub sid: u32,
+    pub tty: bool,
 }
 
 /// One physical disk's throughput in bytes per second.
@@ -97,11 +102,59 @@ pub struct Alert<'a> {
     pub kind: Pressure,
     pub danger: bool,
     pub culprits: Vec<&'a Proc>,
+    /// For a CPU alert, each culprit's CPU together with the workers that belong to it (same order as `culprits`).
+    pub cpu: Vec<f32>,
+}
+
+/// Whole-machine CPU at or above this for `SATURATED_TICKS` samples in a row warns even when nothing queues (PSI
+/// stays low when the load just fills the cores, yet audio and the desktop already stutter).
+pub const SATURATED_PCT: f32 = 95.0;
+pub const SATURATED_TICKS: u8 = 3;
+
+/// The busiest jobs: a busy process answers for the topmost ancestor it belongs to, and each root is worth the CPU of
+/// everything that climbed into it (a `make` for its `cc1` workers). Ending a worker only makes the parent start the
+/// next one; the parent is what to end. No program names: a parent is climbed into only when it is the same user and
+/// either (1) the same program as the child (browser and Electron helpers, a script's subshells), except a terminal's
+/// session leader, which is the shell somebody typed the command into, or (2) in the child's process group, which
+/// is not the session's own (a shell gives every command line its own group: `cc1 -> gcc -> make`, never the shell).
+/// A desktop app shares the session's group with its launcher, so it never climbs into `cinnamon`, `plasmashell`
+/// or any other session process.
+/// shortcut: orphans (their parent was ended, so PID 1 owns them) stay one root each; group same-name siblings if
+/// that proves noisy.
+fn cpu_roots(procs: &[Proc], min: f32) -> Vec<(&Proc, f32)> {
+    let by_pid: HashMap<u32, usize> = procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
+    let parent = |i: usize| by_pid.get(&procs[i].ppid).copied().filter(|&p| p != i);
+    let climbs = |c: usize, p: usize| {
+        let (c, p) = (&procs[c], &procs[p]);
+        let shell_of_a_terminal = p.pid == p.sid && p.tty;
+        p.pid > 2
+            && p.user == c.user
+            && ((c.exe.is_some() && c.exe == p.exe && !shell_of_a_terminal)
+                || (c.pgrp != 0 && c.pgrp == p.pgrp && p.pgrp != p.sid))
+    };
+    let mut value = vec![0.0_f32; procs.len()];
+    for i in (0..procs.len()).filter(|&i| procs[i].cpu_pct > 0.0) {
+        let mut top = i;
+        // Depth cap: a corrupt table must not loop forever.
+        for _ in 0..64 {
+            match parent(top).filter(|&p| climbs(top, p)) {
+                Some(p) => top = p,
+                None => break,
+            }
+        }
+        value[top] += procs[i].cpu_pct;
+    }
+    let mut roots: Vec<usize> = (0..procs.len())
+        .filter(|&r| value[r] >= min && value[r] > 0.0)
+        .collect();
+    roots.sort_by(|&a, &b| value[b].total_cmp(&value[a]));
+    roots.truncate(MAX_CULPRITS);
+    roots.into_iter().map(|r| (&procs[r], value[r])).collect()
 }
 
 /// The worst pressure right now (memory, then disk, then CPU) with up to three culprits: the biggest memory users,
 /// the processes in disk wait (`D`) or the busiest ones.
-pub fn pressure<'a>(s: &SysStats, procs: &'a [Proc], lim: &Alerts) -> Option<Alert<'a>> {
+pub fn pressure<'a>(s: &SysStats, procs: &'a [Proc], lim: &Alerts, saturated: bool) -> Option<Alert<'a>> {
     let avail_under =
         |pct: u64| s.mem_total_kb > 0 && s.mem_total_kb.saturating_sub(s.mem_used_kb) * 100 < s.mem_total_kb * pct;
     let top = |mut v: Vec<&'a Proc>, key: fn(&Proc) -> f32| {
@@ -116,24 +169,23 @@ pub fn pressure<'a>(s: &SysStats, procs: &'a [Proc], lim: &Alerts) -> Option<Ale
             // Danger can never be earlier than watch, whatever the two numbers say.
             danger: s.psi_mem > psi_mem || avail_under(lim.mem_danger_pct.min(lim.mem_watch_pct).into()),
             culprits: top(procs.iter().collect(), |p| p.mem_kb as f32),
+            cpu: vec![],
         })
     } else if s.psi_io > psi_io {
         Some(Alert {
             kind: Pressure::Io,
             danger: true,
             culprits: top(procs.iter().filter(|p| p.state == 'D').collect(), |p| p.mem_kb as f32),
+            cpu: vec![],
         })
-    } else if s.psi_cpu > psi_cpu {
+    } else if s.psi_cpu > psi_cpu || saturated {
+        let (culprits, cpu) = cpu_roots(procs, lim.cpu_culprit_min as f32).into_iter().unzip();
         Some(Alert {
             kind: Pressure::Cpu,
-            danger: true,
-            culprits: top(
-                procs
-                    .iter()
-                    .filter(|p| p.cpu_pct >= lim.cpu_culprit_min as f32)
-                    .collect(),
-                |p| p.cpu_pct,
-            ),
+            // Saturation alone is amber: nothing waits yet, the machine is just full.
+            danger: s.psi_cpu > psi_cpu,
+            culprits,
+            cpu,
         })
     } else {
         None
@@ -215,7 +267,9 @@ impl Sampler {
             };
             let dir = format!("/proc/{pid}");
             // The process may exit between listing and reading: skip it silently on any error.
-            let Some((name, t, start, state, ppid)) = parse_stat(&read(&format!("{dir}/stat"))) else {
+            let stat = read(&format!("{dir}/stat"));
+            let (Some((name, t, start, state, ppid)), Some((pgrp, sid, tty))) = (parse_stat(&stat), parse_job(&stat))
+            else {
                 continue;
             };
             let Some((uid, mem_kb)) = parse_status(&read(&format!("{dir}/status"))) else {
@@ -245,6 +299,9 @@ impl Sampler {
                 state,
                 ppid,
                 exe,
+                pgrp,
+                sid,
+                tty,
             });
         }
         self.prev_ticks = ticks;
@@ -341,6 +398,13 @@ fn parse_stat(text: &str) -> Option<(String, u64, u64, char, u32)> {
     let start = rest.get(19)?.parse().ok()?;
     let ppid = rest.get(1)?.parse().ok()?;
     Some((name.to_string(), ticks, start, rest.first()?.chars().next()?, ppid))
+}
+
+/// `(process group, session, has a controlling terminal)`: stat fields 5, 6 and 7 -> indexes 2, 3, 4.
+fn parse_job(text: &str) -> Option<(u32, u32, bool)> {
+    let (_, rest) = split_stat(text)?;
+    let tty: i64 = rest.get(4)?.parse().ok()?;
+    Some((rest.get(2)?.parse().ok()?, rest.get(3)?.parse().ok()?, tty != 0))
 }
 
 /// A `/proc/<pid>/status` line's number in kB: `VmRSS:   2048 kB` -> 2048.
@@ -584,12 +648,14 @@ fn run_with_pkexec(tool: &str, args: &[String]) -> Result<(), KillError> {
         return Ok(());
     }
     let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    if err.contains("No such process") {
-        return Err(KillError::Exited);
-    }
-    // kill says "not permitted", renice says "Permission denied".
+    // kill says "not permitted", renice says "Permission denied". Checked first: a list of PIDs can give both lines
+    // (one child belongs to root, another already exited), and the permitted ones still need the retry.
     if !(err.contains("not permitted") || err.contains("Permission denied")) {
-        return Err(KillError::Failed(err));
+        return Err(if err.contains("No such process") {
+            KillError::Exited
+        } else {
+            KillError::Failed(err)
+        });
     }
     let out = Command::new("timeout")
         .args([PKEXEC_WAIT_SECS, "pkexec"])
@@ -624,6 +690,68 @@ pub fn signal(pid: u32, start: u64, sig: Signal) -> Result<(), KillError> {
         return Err(KillError::Exited);
     }
     run_with_pkexec("/usr/bin/kill", &[sig.arg().into(), pid.to_string()])
+}
+
+/// Every descendant of `root` in a `(pid, ppid, start)` table, nearest first. A visited set stops a corrupt table
+/// (a ppid loop) from running forever.
+fn descendants_of(table: &[(u32, u32, u64)], root: u32) -> Vec<(u32, u64)> {
+    let mut seen = std::collections::HashSet::from([root]);
+    let mut out: Vec<(u32, u64)> = vec![];
+    let mut frontier = vec![root];
+    while !frontier.is_empty() {
+        let mut next = vec![];
+        for &(pid, ppid, start) in table {
+            if frontier.contains(&ppid) && seen.insert(pid) {
+                out.push((pid, start));
+                next.push(pid);
+            }
+        }
+        frontier = next;
+    }
+    out
+}
+
+/// How many processes are under `pid` in the sampled table (what the confirmation offers to include).
+pub fn count_descendants(procs: &[Proc], pid: u32) -> usize {
+    let table: Vec<_> = procs.iter().map(|p| (p.pid, p.ppid, p.start)).collect();
+    descendants_of(&table, pid).len()
+}
+
+/// Sends `sig` to `(pid, start)` and everything under it, found by a fresh `/proc` scan (the sampled table can be a
+/// refresh old and miss workers a parent just forked). The root goes first in one `kill` call, so a parent that
+/// respawns workers (`xargs`, `make`) is gone before the rest is signalled, and one polkit dialog covers the lot.
+/// Never PID 1, nor this app (ending the terminal that started it must not end it).
+/// shortcut: a child forked after the scan is missed; with pkexec, a child that exits while the dialog is open and
+/// whose PID is reused could be signalled (the window `PKEXEC_WAIT_SECS` bounds, as in `same_process`).
+pub fn signal_tree(pid: u32, start: u64, sig: Signal) -> Result<(), KillError> {
+    if pid == 1 || pid == std::process::id() {
+        return Err(KillError::Refused);
+    }
+    if !same_process(pid, start) {
+        return Err(KillError::Exited);
+    }
+    let mut table = vec![];
+    for e in fs::read_dir("/proc").into_iter().flatten().flatten() {
+        let Some(p) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else {
+            continue;
+        };
+        if let Some((_, _, st, _, pp)) = parse_stat(&read(&format!("/proc/{p}/stat"))) {
+            table.push((p, pp, st));
+        }
+    }
+    let me = std::process::id();
+    let mut args = vec![sig.arg().to_string(), pid.to_string()];
+    args.extend(
+        descendants_of(&table, pid)
+            .into_iter()
+            .filter(|&(p, _)| p != 1 && p != me)
+            .map(|(p, _)| p.to_string()),
+    );
+    // A worker that exited since the scan makes `kill` complain about it alone: the root was alive, so that is done.
+    match run_with_pkexec("/usr/bin/kill", &args) {
+        Err(KillError::Exited) => Ok(()),
+        r => r,
+    }
 }
 
 /// Sets the nice value (-20..=19) of the process `(pid, start)`. Raising the priority needs root, hence pkexec.
@@ -790,6 +918,9 @@ mod tests {
             state,
             ppid: 1,
             exe: None,
+            pgrp: 0,
+            sid: 0,
+            tty: false,
         };
         let procs = [
             p(1, 90.0, 10, 'S'),
@@ -800,7 +931,7 @@ mod tests {
         ];
         // (kind, danger, culprit PIDs) of the alert, if any.
         let alert = |s: &SysStats, procs: &[Proc]| {
-            pressure(s, procs, &Alerts::default())
+            pressure(s, procs, &Alerts::default(), false)
                 .map(|a| (a.kind, a.danger, a.culprits.iter().map(|p| p.pid).collect::<Vec<_>>()))
         };
         let mut s = SysStats::default();
@@ -833,7 +964,7 @@ mod tests {
             psi_cpu: 40.0,
             ..SysStats::default()
         };
-        assert!(pressure(&s, &procs, &Alerts::default()).is_none());
+        assert!(pressure(&s, &procs, &Alerts::default(), false).is_none());
         // Danger above watch counts as watch: 15% free with watch 10 and danger 50 is no alert, and with watch 20
         // and danger 5 it is amber.
         let m = SysStats {
@@ -846,20 +977,123 @@ mod tests {
             mem_danger_pct: 5,
             ..Alerts::default()
         };
-        assert!(!pressure(&m, &procs, &odd).unwrap().danger);
+        assert!(!pressure(&m, &procs, &odd, false).unwrap().danger);
         let odd = Alerts {
             mem_watch_pct: 10,
             mem_danger_pct: 50,
             ..Alerts::default()
         };
-        assert!(pressure(&m, &procs, &odd).is_none());
+        assert!(pressure(&m, &procs, &odd, false).is_none());
         let strict = Alerts {
             psi_cpu: 30,
             cpu_culprit_min: 70,
             ..Alerts::default()
         };
-        let a = pressure(&s, &procs, &strict).unwrap();
+        let a = pressure(&s, &procs, &strict, false).unwrap();
         assert_eq!(a.culprits.iter().map(|p| p.pid).collect::<Vec<_>>(), [1]);
+    }
+
+    /// Prints the culprits of the live machine: `cargo test -p fastprocman-core live_cpu_roots -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_cpu_roots() {
+        let mut sampler = Sampler::new();
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let sample = sampler.sample();
+        for (p, cpu) in cpu_roots(&sample.procs, 1.0) {
+            println!(
+                "{} {} {cpu:.0}% (pgrp {} sid {} tty {})",
+                p.pid, p.name, p.pgrp, p.sid, p.tty
+            );
+        }
+    }
+
+    #[test]
+    fn stat_job_fields() {
+        let line =
+            "42 (we) ird) S 1 77 88 34816 -1 4194560 1 0 0 0 7 5 0 0 20 0 1 0 12345 1000 10 18446744073709551615";
+        assert_eq!(parse_job(line), Some((77, 88, true)));
+        assert_eq!(parse_job("42 (x) S 1 5 5 0 -1"), Some((5, 5, false)));
+        assert_eq!(parse_job("42 (x) S 1"), None);
+    }
+
+    #[test]
+    fn cpu_alert_names_the_job_root_not_its_workers() {
+        // `exe` is `/bin/<name>` unless given: two processes of one program share it.
+        let p = |pid, ppid, name: &str, user: &str, cpu_pct, (pgrp, sid, tty): (u32, u32, bool)| Proc {
+            pid,
+            start: 0,
+            name: name.into(),
+            user: user.into(),
+            cpu_pct,
+            mem_kb: 0,
+            warn: None,
+            state: 'S',
+            ppid,
+            exe: Some(format!("/bin/{name}")),
+            pgrp,
+            sid,
+            tty,
+        };
+        let top = |procs: &[Proc]| {
+            let a = pressure(&SysStats::default(), procs, &Alerts::default(), true).unwrap();
+            assert_eq!((a.kind, a.danger), (Pressure::Cpu, false));
+            a.culprits
+                .iter()
+                .map(|p| p.pid)
+                .zip(a.cpu.iter().copied())
+                .collect::<Vec<_>>()
+        };
+        // In a terminal (session 100, tty): the shell leads it; every command line gets its own group.
+        let term = (100, 100, true);
+        let job = (200, 100, true);
+        let build = [
+            p(1, 0, "systemd", "root", 0.0, (1, 1, false)),
+            p(90, 1, "kitty", "me", 0.0, (90, 90, false)),
+            p(100, 90, "zsh", "me", 0.0, term),
+            p(200, 100, "make", "me", 1.0, job),
+            p(201, 200, "gcc", "me", 0.0, job),
+            p(202, 201, "cc1", "me", 60.0, job),
+            p(203, 200, "cc1", "me", 60.0, job),
+            p(204, 200, "cc1", "me", 60.0, job),
+            p(205, 200, "cc1", "me", 60.0, job),
+        ];
+        assert_eq!(top(&build), [(200, 241.0)]);
+        // A script run from a shell is the job even though its workers are shells too, also from an interactive
+        // `bash` (same program as the script, but the leader of the terminal).
+        for shell in ["zsh", "bash"] {
+            let script = [
+                p(100, 90, shell, "me", 0.0, term),
+                p(200, 100, "bash", "me", 0.0, job),
+                p(201, 200, "bash", "me", 40.0, job),
+                p(202, 200, "bash", "me", 40.0, job),
+            ];
+            assert_eq!(top(&script), [(200, 80.0)], "run from {shell}");
+        }
+        // Desktop apps share the session's group with their launcher (a session of any name, even `mate-session`):
+        // Firefox's helpers join it, the launcher answers for its own CPU only and is not blamed under the floor.
+        let ses = (300, 300, false);
+        let desk = [
+            p(300, 1, "mate-session", "me", 0.0, ses),
+            p(310, 300, "marco", "me", 14.0, ses),
+            p(320, 310, "firefox", "me", 55.0, ses),
+            p(321, 320, "firefox", "me", 100.0, ses),
+            p(322, 320, "firefox", "me", 100.0, ses),
+        ];
+        assert_eq!(top(&desk), [(320, 255.0)]);
+        // Another user's process is never climbed into.
+        let other = [
+            p(40, 1, "daemon", "root", 0.0, (40, 40, false)),
+            p(41, 40, "daemon", "me", 80.0, (40, 40, false)),
+        ];
+        assert_eq!(top(&other), [(41, 80.0)]);
+        // Over the stall limit it is red; neither stalled nor saturated: nothing.
+        let hot = SysStats {
+            psi_cpu: 80.0,
+            ..SysStats::default()
+        };
+        assert!(pressure(&hot, &build, &Alerts::default(), false).unwrap().danger);
+        assert!(pressure(&SysStats::default(), &build, &Alerts::default(), false).is_none());
     }
 
     #[test]
@@ -996,6 +1230,79 @@ mod tests {
         // A wrong start time must never be signalled.
         assert_eq!(signal(me, 0, Signal::Cont), Err(KillError::Exited));
         assert_eq!(renice(me, 0, 0), Err(KillError::Exited));
+    }
+
+    #[test]
+    fn descendants_are_found_through_every_level_and_loops_end() {
+        // 1 -> 2 -> {3, 4}; 4 -> 5; 9 is unrelated; 6 <-> 7 point at each other.
+        let t = [
+            (2, 1, 20),
+            (3, 2, 30),
+            (4, 2, 40),
+            (5, 4, 50),
+            (9, 8, 90),
+            (6, 7, 60),
+            (7, 6, 70),
+        ];
+        let mut d = descendants_of(&t, 2);
+        d.sort();
+        assert_eq!(d, [(3, 30), (4, 40), (5, 50)]);
+        assert_eq!(descendants_of(&t, 9), []);
+        assert_eq!(descendants_of(&t, 6), [(7, 70)]);
+    }
+
+    #[test]
+    fn signal_tree_ends_the_workers_a_plain_signal_would_orphan() {
+        let mut parent = {
+            let _g = spawn_lock();
+            Command::new("sh")
+                .args(["-c", "sleep 60 & sleep 60 & wait"])
+                .spawn()
+                .unwrap()
+        };
+        let pid = parent.id();
+        let start = parse_stat(&read(&format!("/proc/{pid}/stat"))).unwrap().2;
+        let kids = |n: usize| {
+            for _ in 0..100 {
+                let table: Vec<_> = fs::read_dir("/proc")
+                    .unwrap()
+                    .flatten()
+                    .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+                    .filter_map(|p| parse_stat(&read(&format!("/proc/{p}/stat"))).map(|s| (p, s.4, s.2)))
+                    .collect();
+                let d = descendants_of(&table, pid);
+                if d.len() >= n {
+                    return d;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            panic!("the shell never started its sleeps");
+        };
+        let children = kids(2);
+        assert_eq!(signal_tree(pid, start, Signal::Term), Ok(()));
+        parent.wait().unwrap();
+        for (c, _) in children {
+            // Gone, or a zombie waiting for PID 1 to reap it.
+            for _ in 0..100 {
+                let alive = parse_stat(&read(&format!("/proc/{c}/stat"))).is_some_and(|s| s.3 != 'Z');
+                if !alive {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            assert!(
+                !parse_stat(&read(&format!("/proc/{c}/stat"))).is_some_and(|s| s.3 != 'Z'),
+                "child {c} survived"
+            );
+        }
+    }
+
+    #[test]
+    fn signal_tree_refuses_pid_1_and_ourselves_and_a_stale_start() {
+        assert_eq!(signal_tree(1, 0, Signal::Term), Err(KillError::Refused));
+        let me = std::process::id();
+        assert_eq!(signal_tree(me, 0, Signal::Kill), Err(KillError::Refused));
+        assert_eq!(signal_tree(2_000_000_000, 5, Signal::Term), Err(KillError::Exited));
     }
 
     #[test]

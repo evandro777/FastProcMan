@@ -72,6 +72,8 @@ struct State {
     selected_group: Option<(u32, u64)>,
     /// The processes the slowdown banner names, in its order; a click on one selects it.
     alert: Vec<(u32, u64, String)>,
+    /// Consecutive samples with the whole machine at `sys::SATURATED_PCT` or more (the amber CPU warning).
+    cpu_busy: u8,
     /// `(pid, start)` the Properties dialog shows. Not the selection: that follows the table, this is fixed at open.
     props: Option<(u32, u64)>,
     /// Column and ascending; Memory descending to start.
@@ -148,6 +150,7 @@ thread_local! {
         selected: None,
         selected_group: None,
         alert: Vec::new(),
+        cpu_busy: 0,
         props: None,
         sort: (4, false),
         filter: String::new(),
@@ -178,6 +181,7 @@ struct View {
     selected_row: i32,
     selected_label: SharedString,
     selected_stopped: bool,
+    selected_kids: i32,
     count: SharedString,
     alert_text: SharedString,
     alert_danger: bool,
@@ -277,6 +281,26 @@ fn area(q: &VecDeque<f64>, scale: f64) -> SharedString {
     format!("{}L {} 100 L {x0} 100 Z", path(q, scale), HIST - 1).into()
 }
 
+/// A pie slice in the 2 x 2 box of the `Pie` gauge, from 12 o'clock clockwise. Empty at 0%; a full disc at 100%
+/// because an arc whose end is its start draws nothing.
+fn pie(pct: f64) -> SharedString {
+    let pct = pct.clamp(0.0, 100.0);
+    if pct < 0.05 {
+        return SharedString::new();
+    }
+    if pct > 99.95 {
+        return "M 0 1 A 1 1 0 1 1 2 1 A 1 1 0 1 1 0 1 Z".into();
+    }
+    let a = pct / 100.0 * std::f64::consts::TAU;
+    let large = u8::from(pct > 50.0);
+    format!(
+        "M 1 1 L 1 0 A 1 1 0 {large} 1 {:.3} {:.3} Z",
+        1.0 + a.sin(),
+        1.0 - a.cos()
+    )
+    .into()
+}
+
 fn peak(a: &VecDeque<f64>, b: &VecDeque<f64>) -> f64 {
     a.iter().chain(b).copied().fold(RATE_FLOOR, f64::max)
 }
@@ -289,6 +313,13 @@ impl State {
                 .iter()
                 .any(|p| (p.pid, p.start) == (*pid, *start) && matches!(p.state, 'T' | 't'))
         })
+    }
+
+    /// How many processes are under the selected one: the confirmation offers to end them too.
+    fn selected_kids(&self) -> i32 {
+        self.selected
+            .as_ref()
+            .map_or(0, |(pid, _, _)| sys::count_descendants(&self.procs, *pid) as i32)
     }
 
     fn view(&mut self, tr: &Tr, graphs: bool) -> View {
@@ -373,7 +404,12 @@ impl State {
         };
 
         // The slowdown banner and the processes it names (their rows are drawn amber).
-        let alert = sys::pressure(&self.sys, &self.procs, &self.alerts);
+        let alert = sys::pressure(
+            &self.sys,
+            &self.procs,
+            &self.alerts,
+            self.cpu_busy >= sys::SATURATED_TICKS,
+        );
         let left = size(
             tr,
             self.sys.mem_total_kb.saturating_sub(self.sys.mem_used_kb) as f64 * 1024.0,
@@ -393,9 +429,10 @@ impl State {
         let alert_items: Vec<SharedString> = alert
             .iter()
             .flat_map(|a| {
-                a.culprits.iter().map(|p| {
+                a.culprits.iter().enumerate().map(|(i, p)| {
                     let value = match a.kind {
-                        sys::Pressure::Cpu => tr.invoke_percent(format!("{:.0}", self.cpu_shown(p.cpu_pct)).into()),
+                        // The job's whole tree, not the process alone: that is what ending it frees.
+                        sys::Pressure::Cpu => tr.invoke_percent(format!("{:.0}", self.cpu_shown(a.cpu[i])).into()),
                         _ => size(tr, p.mem_kb as f64 * 1024.0),
                     };
                     tr.invoke_alert_item(p.name.as_str().into(), value)
@@ -496,6 +533,7 @@ impl State {
             selected_row: pos.map_or(-1, |i| i as i32),
             selected_label,
             selected_stopped: self.selected_stopped(),
+            selected_kids: self.selected_kids(),
             count,
             alert_text,
             alert_danger,
@@ -506,7 +544,7 @@ impl State {
         }
     }
 
-    /// The Graphs page's cards: CPU (total plus one faint line per core), Memory (and swap), Network, each GPU,
+    /// The Graphs page's cards: CPU (total line plus each core's load as text), Memory (and swap), Network, each GPU,
     /// then each disk.
     fn graph_cards(&self, tr: &Tr) -> Vec<GraphData> {
         let (h, s) = (&self.hist, &self.sys);
@@ -520,13 +558,14 @@ impl State {
             legend: list(vec![]),
             paths: list(vec![path(&h.cpu, 100.0)]),
             fill: area(&h.cpu, 100.0),
-            faint: h
-                .cores
-                .iter()
-                .map(|c| path(c, 100.0))
-                .collect::<Vec<_>>()
-                .join("")
-                .into(),
+            cores: list(
+                h.cores
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| tr.invoke_labelled(i.to_string().into(), tr.invoke_percent(pct_text(last(c)))))
+                    .collect(),
+            ),
+            ..Default::default()
         }];
 
         let mem = |used_kb: u64, total_kb: u64, series: &VecDeque<f64>| {
@@ -557,7 +596,13 @@ impl State {
                 vec![path(&h.mem, 100.0)]
             }),
             fill: area(&h.mem, 100.0),
-            faint: SharedString::new(),
+            pie: pie(last(&h.mem)),
+            extra_pie: if has_swap {
+                pie(last(&h.swap))
+            } else {
+                SharedString::new()
+            },
+            ..Default::default()
         });
 
         let net_scale = peak(&h.rx, &h.tx);
@@ -568,16 +613,16 @@ impl State {
             legend: list(vec![tr.invoke_graph_download(), tr.invoke_graph_upload()]),
             paths: list(vec![path(&h.rx, net_scale), path(&h.tx, net_scale)]),
             fill: area(&h.rx, net_scale),
-            faint: SharedString::new(),
+            ..Default::default()
         });
 
         for (g, q) in s.gpus.iter().zip(&h.gpus) {
-            // Encode and decode are absent when the driver does not report them (AMD): drop their lines and legend.
+            // Encode, decode and memory are absent when the driver does not report them (AMD, Intel): drop their lines and legend.
             let parts = [
                 (tr.invoke_graph_processing(), true, &q[0]),
                 (tr.invoke_graph_encode(), g.enc.is_some(), &q[1]),
                 (tr.invoke_graph_decode(), g.dec.is_some(), &q[2]),
-                (tr.invoke_graph_memory(), true, &q[3]),
+                (tr.invoke_graph_memory(), g.mem_total > 0, &q[3]),
             ];
             let shown: Vec<_> = parts.iter().filter(|p| p.1).collect();
             cards.push(GraphData {
@@ -594,7 +639,7 @@ impl State {
                 legend: list(shown.iter().map(|p| p.0.clone()).collect()),
                 paths: list(shown.iter().map(|p| path(p.2, 100.0)).collect()),
                 fill: area(&q[0], 100.0),
-                faint: SharedString::new(),
+                ..Default::default()
             });
         }
 
@@ -607,7 +652,7 @@ impl State {
                 legend: list(vec![tr.invoke_graph_read(), tr.invoke_graph_write()]),
                 paths: list(vec![path(rd, scale), path(wr, scale)]),
                 fill: area(rd, scale),
-                faint: SharedString::new(),
+                ..Default::default()
             });
         }
         cards
@@ -630,6 +675,7 @@ fn refresh(ui: &Main) {
     ui.set_selected_row(v.selected_row);
     ui.set_selected_label(v.selected_label);
     ui.set_selected_stopped(v.selected_stopped);
+    ui.set_selected_kids(v.selected_kids);
     ui.set_count_text(v.count);
     ui.set_alert_text(v.alert_text);
     ui.set_alert_danger(v.alert_danger);
@@ -693,6 +739,11 @@ fn on_sample(ui: &Main, sample: Sample) {
                 push(series, v);
             }
         }
+        s.cpu_busy = if sample.sys.cpu_pct >= sys::SATURATED_PCT {
+            s.cpu_busy.saturating_add(1)
+        } else {
+            0
+        };
         s.sys = sample.sys;
         s.procs = sample.procs;
         if !s.flipped.is_empty() {
@@ -787,7 +838,7 @@ fn set_all_open(ui: &Main, open: bool) {
 
 /// Remembers the process behind table row `row` (`-1` for none).
 fn select(ui: &Main, row: i32) {
-    let (label, stopped) = APP.with_borrow_mut(|s| {
+    let (label, stopped, kids) = APP.with_borrow_mut(|s| {
         let key = usize::try_from(row).ok().and_then(|i| s.shown.get(i).copied());
         s.selected = key.and_then(|(pid, start)| {
             s.procs
@@ -796,11 +847,12 @@ fn select(ui: &Main, row: i32) {
                 .map(|p| (pid, start, p.name.clone()))
         });
         s.selected_group = key.filter(|_| s.selected.is_none());
-        (s.selected.clone(), s.selected_stopped())
+        (s.selected.clone(), s.selected_stopped(), s.selected_kids())
     });
     let label = label.map(|(pid, _, name)| ui.global::<Tr>().invoke_process_label(name.as_str().into(), pid as i32));
     ui.set_selected_label(label.unwrap_or_default());
     ui.set_selected_stopped(stopped);
+    ui.set_selected_kids(kids);
 }
 
 /// What the menu and the confirmation can do to the selected process.
@@ -831,10 +883,13 @@ fn act_selected(ui: &Main, tx: &mpsc::Sender<Cmd>, action: Action) {
         ui.set_status(ui.global::<Tr>().invoke_status_exited());
         return;
     }
+    let with_children = ui.get_confirm_tree() && ui.get_confirm_kids() > 0;
     let (weak, tx) = (ui.as_weak(), tx.clone());
     // pkexec waits for the polkit dialog, so this must never run on the UI thread.
     thread::spawn(move || {
         let result = match action {
+            // The confirmation's checkbox: the process and everything under it (only End and Kill show it).
+            Action::Signal(sig @ (Signal::Term | Signal::Kill)) if with_children => sys::signal_tree(pid, start, sig),
             Action::Signal(sig) => sys::signal(pid, start, sig),
             Action::Nice(n) => sys::renice(pid, start, n),
         };
@@ -1354,6 +1409,8 @@ fn main() {
                 }
             }
             ui.set_confirm_force(p == "confirm-kill");
+            // A parent with workers, so the snapshot shows the checkbox (plural and singular).
+            ui.set_confirm_kids(if p == "confirm-kill" { 1 } else { 16 });
             ui.set_confirm_label(ui.get_selected_label());
             ui.set_confirm_open(true);
         }
@@ -1514,6 +1571,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pie_slices() {
+        assert_eq!(pie(0.0).as_str(), "");
+        assert_eq!(pie(100.0).matches('A').count(), 2);
+        assert!(pie(25.0).contains("A 1 1 0 0 1 2.000 1.000"));
+        assert!(pie(75.0).contains("A 1 1 0 1 1 0.000 1.000"));
+        assert_eq!(pie(-5.0).as_str(), "");
+        assert_eq!(pie(250.0).matches('A').count(), 2);
+    }
+
+    #[test]
     fn area_closes_the_line_along_the_bottom_edge() {
         assert_eq!(area(&VecDeque::new(), 100.0).as_str(), "");
         // Part-filled history: the line starts at x = HIST - 2, the area must close back to that same x (no slant).
@@ -1544,6 +1611,9 @@ mod tests {
             state: 'S',
             ppid: 1,
             exe: None,
+            pgrp: 0,
+            sid: 0,
+            tty: false,
         };
         // A group labelled "Alpha" is led by Xorg: it must sort before "bash" by its label, not after it as "xorg".
         let (xorg, bash) = (proc(1, "Xorg"), proc(2, "bash"));

@@ -248,6 +248,14 @@ msgid "The program is stopped immediately and cannot save anything. Use this onl
 msgstr "O programa é interrompido na hora e não consegue salvar nada. Use só se Fechar não funcionar."
 
 msgctxt "Confirm"
+msgid "Also include its child process"
+msgstr "Incluir também o processo filho"
+
+msgctxt "Confirm"
+msgid "Also include its {} child processes"
+msgstr "Incluir também os {} processos filhos"
+
+msgctxt "Confirm"
 msgid "Cancel"
 msgstr "Cancelar"
 

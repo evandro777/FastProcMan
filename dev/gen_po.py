@@ -68,6 +68,8 @@ T = [
     ("Confirm", "Force quit {}?", ["Forçar o encerramento de {}?"]),
     ("Confirm", "The program is asked to quit. It may ask to save your work first.", ["O programa é solicitado a fechar. Ele pode pedir para salvar o trabalho antes."]),
     ("Confirm", "The program is stopped immediately and cannot save anything. Use this only if Quit does not work.", ["O programa é interrompido na hora e não consegue salvar nada. Use só se Fechar não funcionar."]),
+    ("Confirm", "Also include its child process", ["Incluir também o processo filho"]),
+    ("Confirm", "Also include its {} child processes", ["Incluir também os {} processos filhos"]),
     ("Confirm", "Cancel", ["Cancelar"]),
     ("Confirm", "Quit", ["Fechar"]),
     ("Confirm", "Force quit", ["Forçar encerramento"]),

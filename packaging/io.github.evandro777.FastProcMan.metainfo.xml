@@ -15,12 +15,13 @@
   <launchable type="desktop-id">io.github.evandro777.FastProcMan.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.1.4" date="2026-11-10">
+    <release version="0.2.2" date="2026-11-19">
       <description>
-        <p>Fix keyboard navigation in tree process list</p>
-        <p>More icons are now available</p>
-        <p>More applications are detected for grouping (like chrome)</p>
-        <p>Customizable slowdown alerts</p>
+        <ul>
+          <li>Quit/Force quit can also end the process's children, so a runaway job leaves no orphans.</li>
+          <li>The slowdown warning blames the job as a whole, not one of its workers, and warns when the CPU is saturated.</li>
+          <li>The Graphs page now supports Intel GPUs, shows each core's load and has memory and swap pies.</li>
+        </ul>
       </description>
     </release>
   </releases>

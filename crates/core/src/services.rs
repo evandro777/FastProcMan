@@ -196,6 +196,9 @@ mod tests {
             state: 'S',
             ppid: 1,
             exe: None,
+            pgrp: 0,
+            sid: 0,
+            tty: false,
         }
     }
 
