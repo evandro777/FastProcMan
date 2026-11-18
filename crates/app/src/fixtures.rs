@@ -67,12 +67,15 @@ fn procs(n: usize) -> Vec<Proc> {
             state: if name == "zsh" { 'T' } else { 'S' },
             ppid: PPID[(pid - 1000) as usize],
             exe: None,
+            pgrp: 0,
+            sid: 0,
+            tty: false,
         })
         .collect()
 }
 
 /// `single` (mode 1) has no swap, no GPU and one disk, so one snapshot covers the cards that disappear and an odd
-/// number of cards; `many` has swap, a GPU with a long name and three disks (seven cards: an odd one out).
+/// number of cards; `many` has swap, two GPUs (one with a long name, one with load only) and three disks (eight cards).
 fn stats(i: usize, mode: usize) -> SysStats {
     let t = i as f64 / 5.0;
     let many = mode > 1;
@@ -113,14 +116,22 @@ fn stats(i: usize, mode: usize) -> SysStats {
             vec![disk("nvme0n1", 0.0)]
         },
         gpus: if many {
-            vec![GpuStats {
-                name: "NVIDIA GeForce RTX 4070 SUPER".into(),
-                busy: (50.0 + 40.0 * t.sin()) as f32,
-                enc: Some((20.0 + 15.0 * (t * 1.3).cos()) as f32),
-                dec: Some(if i % 12 < 6 { 35.0 } else { 0.0 }),
-                mem_used: 1_500_000_000 + 10_000_000 * i as u64,
-                mem_total: 12_878_610_432,
-            }]
+            vec![
+                GpuStats {
+                    name: "NVIDIA GeForce RTX 4070 SUPER".into(),
+                    busy: (50.0 + 40.0 * t.sin()) as f32,
+                    enc: Some((20.0 + 15.0 * (t * 1.3).cos()) as f32),
+                    dec: Some(if i % 12 < 6 { 35.0 } else { 0.0 }),
+                    mem_used: 1_500_000_000 + 10_000_000 * i as u64,
+                    mem_total: 12_878_610_432,
+                },
+                // An integrated card: load only, no video memory.
+                GpuStats {
+                    name: "GPU 1".into(),
+                    busy: (25.0 + 20.0 * (t * 0.7).cos()) as f32,
+                    ..Default::default()
+                },
+            ]
         } else {
             Vec::new()
         },

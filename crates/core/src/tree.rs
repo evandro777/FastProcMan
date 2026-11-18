@@ -307,6 +307,9 @@ mod tests {
             state: 'S',
             ppid,
             exe: None,
+            pgrp: 0,
+            sid: 0,
+            tty: false,
         }
     }
 

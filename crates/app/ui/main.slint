@@ -1,5 +1,5 @@
 import {
-    Button, ComboBox, ListView, Palette, ScrollView, SpinBox, Switch, VerticalBox,
+    Button, CheckBox, ComboBox, ListView, Palette, ScrollView, SpinBox, Switch, VerticalBox,
 } from "std-widgets.slint";
 import { Family } from "family.slint";
 import { AboutCard, PrefRow } from "about.slint";
@@ -157,8 +157,11 @@ export struct GraphData {
     paths: [string],
     // `paths[0]` closed down to the bottom edge, drawn as a soft area under the line; empty with no samples.
     fill: string,
-    // Thin faint lines behind `paths` (every CPU core): several sub-paths in one string.
-    faint: string,
+    // Pie slices (in a 2 x 2 box) for `value` and `extra`: how full memory / swap is; empty for no pie.
+    pie: string,
+    extra-pie: string,
+    // One "n: 12%" label per CPU core, shown as a grid; empty for none.
+    cores: [string],
 }
 
 // An in-window overlay, not a second window: closing Main always ends the app, and ui-snapshot.sh can capture it.
@@ -387,6 +390,9 @@ component Confirm inherits Rectangle {
     // The process's icon (empty when it has none, and never shown for a service).
     in property <image> icon;
     in property <bool> force;
+    // Processes under it, and whether they go too (two-way with `Main.confirm-tree`).
+    in property <int> kids;
+    in-out property <bool> tree;
     // 0 a process (End or Kill, by `force`), 1 stop a service, 2 restart a service.
     in property <int> service;
     callback accepted();
@@ -433,6 +439,10 @@ component Confirm inherits Rectangle {
                     ? @tr("The program is stopped immediately and cannot save anything. Use this only if Quit does not work.")
                     : @tr("The program is asked to quit. It may ask to save your work first.");
                 wrap: word-wrap;
+            }
+            if root.service == 0 && root.kids > 0: CheckBox {
+                text: root.kids == 1 ? @tr("Also include its child process") : @tr("Also include its {} child processes", root.kids);
+                checked <=> root.tree;
             }
             HorizontalLayout {
                 alignment: end;
@@ -1282,6 +1292,25 @@ component ServicesPage inherits Rectangle {
     }
 }
 
+// A small round gauge: a faint disc with the filled slice on top, in the colour of its line.
+component Pie inherits Rectangle {
+    in property <string> slice;
+    in property <color> tint;
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background: Palette.foreground.with-alpha(0.12);
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 2;
+        viewbox-height: 2;
+        fit: fill;
+        commands: root.slice;
+        fill: root.tint;
+    }
+}
+
 component GraphCard inherits Rectangle {
     in property <GraphData> data;
     in property <bool> ready;
@@ -1306,14 +1335,35 @@ component GraphCard inherits Rectangle {
             // A long GPU name gives way first; the value keeps its width while there is room.
             Text { text: root.data.title; font-weight: Family.section-weight; overflow: elide; horizontal-stretch: 1; }
             Text { text: root.data.value; horizontal-alignment: right; overflow: elide; horizontal-stretch: 0; }
+            if root.data.pie != "": Pie { slice: root.data.pie; tint: root.colors[0]; y: 1px; }
         }
-        if root.data.extra != "": Text {
-            text: root.data.extra;
-            font-size: Family.caption;
-            color: Family.muted;
-            horizontal-alignment: right;
-            overflow: elide;
+        if root.data.extra != "": HorizontalLayout {
+            spacing: 8px;
             vertical-stretch: 0;
+            Text {
+                text: root.data.extra;
+                font-size: Family.caption;
+                color: Family.muted;
+                horizontal-alignment: right;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            if root.data.extra-pie != "": Pie { slice: root.data.extra-pie; tint: root.colors[1]; y: 1px; }
+        }
+        // Per-core load as numbers. Not built when empty (an empty grid caps the card's width).
+        // At most four rows, so 8 cores make 4 columns and 32 make 8, and the graph keeps its height.
+        if root.data.cores.length > 0: GridLayout {
+            spacing-horizontal: 8px;
+            vertical-stretch: 0;
+            for label[i] in root.data.cores: Text {
+                property <int> columns: Math.max(4, Math.ceil(root.data.cores.length / 4));
+                row: Math.floor(i / columns);
+                col: Math.mod(i, columns);
+                text: label;
+                font-size: Family.caption;
+                color: Family.muted;
+                overflow: elide;
+            }
         }
         // Series colours are repeated here because the lines alone do not say which is which.
         // Two columns, so a GPU's four names wrap onto a second row instead of running off a narrow card.
@@ -1382,16 +1432,6 @@ component GraphCard inherits Rectangle {
                 commands: root.data.fill;
                 fill: root.colors[0].with-alpha(0.16);
             }
-            if root.ready && root.data.faint != "": Path {
-                width: parent.width;
-                height: parent.height;
-                viewbox-width: 59;
-                viewbox-height: 100;
-                fit: fill;
-                commands: root.data.faint;
-                stroke: Palette.foreground.with-alpha(0.08);
-                stroke-width: 1px;
-            }
             for p[i] in root.data.paths: Path {
                 visible: root.ready;
                 width: parent.width;
@@ -1459,6 +1499,8 @@ export component Main inherits Window {
     in property <[ProcRow]> rows;
     in property <string> selected-label;
     in property <bool> selected-stopped;
+    // Processes under the selected one, copied into `confirm-kids` with the label when the confirmation opens.
+    in property <int> selected-kids;
     in-out property <int> selected-row: -1;
     in-out property <string> filter;
     in-out property <bool> suspicious-only;
@@ -1475,6 +1517,9 @@ export component Main inherits Window {
     // The dialogs are in-out so FASTPROCMAN_PAGE can open them (scripts/ui-snapshot.sh).
     in-out property <bool> confirm-open: false;
     in-out property <bool> confirm-force: false;
+    // Also end the children: ticked by default each time, shown only when `confirm-kids > 0`.
+    in-out property <int> confirm-kids: 0;
+    in-out property <bool> confirm-tree: true;
     in-out property <string> confirm-label;
     // Copied with the label, for the same reason: the table is rebuilt every tick.
     in-out property <image> confirm-icon;
@@ -1538,6 +1583,8 @@ export component Main inherits Window {
         if root.selected-label != "" {
             root.confirm-service = 0;
             root.confirm-force = force;
+            root.confirm-kids = root.selected-kids;
+            root.confirm-tree = true;
             root.confirm-label = root.selected-label;
             if root.selected-row >= 0 && root.selected-row < root.rows.length {
                 root.confirm-icon = root.rows[root.selected-row].icon;
@@ -1548,6 +1595,7 @@ export component Main inherits Window {
     function ask-service(kind: int) {
         if root.svc-selected-label != "" {
             root.confirm-service = kind;
+            root.confirm-kids = 0;
             root.confirm-label = root.svc-selected-label;
             root.confirm-open = true;
         }
@@ -1594,6 +1642,8 @@ export component Main inherits Window {
                     root.confirm-open = false;
                 } else if event.text == Key.Return {
                     root.confirm-accept();
+                } else if event.text == " " && root.confirm-service == 0 && root.confirm-kids > 0 {
+                    root.confirm-tree = !root.confirm-tree;
                 }
                 return accept;
             }
@@ -1929,6 +1979,8 @@ export component Main inherits Window {
         label: root.confirm-label;
         icon: root.confirm-icon;
         force: root.confirm-force;
+        kids: root.confirm-kids;
+        tree <=> root.confirm-tree;
         service: root.confirm-service;
         dismiss => { root.confirm-open = false; }
         accepted => { root.confirm-accept(); }
