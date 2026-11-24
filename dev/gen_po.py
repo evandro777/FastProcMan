@@ -10,6 +10,7 @@ T = [
     ("Tr", "1 process", ["1 processo"]),
     ("Tr", "{} processes", ["{} processos"]),
     ("Tr", "{} ({})", ["{} ({})"]),
+    ("Tr", "{} + {} ({})", ["{} + {} ({})"]),
     ("Tr", "Processes", ["Processos"]),
     ("Tr", "Deleted program", ["Programa apagado"]),
     ("Tr", "In a temp folder", ["Em pasta temporária"]),

@@ -104,6 +104,8 @@ pub struct Alert<'a> {
     pub culprits: Vec<&'a Proc>,
     /// For a CPU alert, each culprit's CPU together with the workers that belong to it (same order as `culprits`).
     pub cpu: Vec<f32>,
+    /// For a CPU alert, the busy processes that were folded into each culprit (same order), without the culprit.
+    pub workers: Vec<Vec<&'a Proc>>,
 }
 
 /// Whole-machine CPU at or above this for `SATURATED_TICKS` samples in a row warns even when nothing queues (PSI
@@ -119,20 +121,36 @@ pub const SATURATED_TICKS: u8 = 3;
 /// is not the session's own (a shell gives every command line its own group: `cc1 -> gcc -> make`, never the shell).
 /// A desktop app shares the session's group with its launcher, so it never climbs into `cinnamon`, `plasmashell`
 /// or any other session process.
-/// shortcut: orphans (their parent was ended, so PID 1 owns them) stay one root each; group same-name siblings if
-/// that proves noisy.
-fn cpu_roots(procs: &[Proc], min: f32) -> Vec<(&Proc, f32)> {
+/// (3) A parent with two or more busy children of one program is their job even when they share its session group
+/// (`cargo -> rustc` run from a tool that has no job control, so every process is in the session's own group), unless
+/// the parent is a session leader (a shell, `systemd --user`).
+/// shortcut: orphans (their parent was ended, so PID 1 owns them) stay one root each; rule (3) also joins two busy
+/// copies of one program started straight from a session process, narrow enough to leave as is.
+/// Each root comes with the busy processes that climbed into it, so the UI can show them as one group.
+fn cpu_roots(procs: &[Proc], min: f32) -> Vec<(&Proc, f32, Vec<&Proc>)> {
     let by_pid: HashMap<u32, usize> = procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
     let parent = |i: usize| by_pid.get(&procs[i].ppid).copied().filter(|&p| p != i);
+    let mut busy_kids: HashMap<(u32, &str), u32> = HashMap::new();
+    for p in procs.iter().filter(|p| p.cpu_pct > 0.0) {
+        if let Some(exe) = p.exe.as_deref() {
+            *busy_kids.entry((p.ppid, exe)).or_default() += 1;
+        }
+    }
     let climbs = |c: usize, p: usize| {
         let (c, p) = (&procs[c], &procs[p]);
         let shell_of_a_terminal = p.pid == p.sid && p.tty;
+        let busy_siblings = c
+            .exe
+            .as_deref()
+            .is_some_and(|exe| p.pid != p.sid && busy_kids.get(&(p.pid, exe)).is_some_and(|&n| n >= 2));
         p.pid > 2
             && p.user == c.user
             && ((c.exe.is_some() && c.exe == p.exe && !shell_of_a_terminal)
-                || (c.pgrp != 0 && c.pgrp == p.pgrp && p.pgrp != p.sid))
+                || (c.pgrp != 0 && c.pgrp == p.pgrp && p.pgrp != p.sid)
+                || busy_siblings)
     };
     let mut value = vec![0.0_f32; procs.len()];
+    let mut workers: Vec<Vec<&Proc>> = vec![vec![]; procs.len()];
     for i in (0..procs.len()).filter(|&i| procs[i].cpu_pct > 0.0) {
         let mut top = i;
         // Depth cap: a corrupt table must not loop forever.
@@ -143,13 +161,19 @@ fn cpu_roots(procs: &[Proc], min: f32) -> Vec<(&Proc, f32)> {
             }
         }
         value[top] += procs[i].cpu_pct;
+        if top != i {
+            workers[top].push(&procs[i]);
+        }
     }
     let mut roots: Vec<usize> = (0..procs.len())
         .filter(|&r| value[r] >= min && value[r] > 0.0)
         .collect();
     roots.sort_by(|&a, &b| value[b].total_cmp(&value[a]));
     roots.truncate(MAX_CULPRITS);
-    roots.into_iter().map(|r| (&procs[r], value[r])).collect()
+    roots
+        .into_iter()
+        .map(|r| (&procs[r], value[r], std::mem::take(&mut workers[r])))
+        .collect()
 }
 
 /// The worst pressure right now (memory, then disk, then CPU) with up to three culprits: the biggest memory users,
@@ -170,6 +194,7 @@ pub fn pressure<'a>(s: &SysStats, procs: &'a [Proc], lim: &Alerts, saturated: bo
             danger: s.psi_mem > psi_mem || avail_under(lim.mem_danger_pct.min(lim.mem_watch_pct).into()),
             culprits: top(procs.iter().collect(), |p| p.mem_kb as f32),
             cpu: vec![],
+            workers: vec![],
         })
     } else if s.psi_io > psi_io {
         Some(Alert {
@@ -177,15 +202,17 @@ pub fn pressure<'a>(s: &SysStats, procs: &'a [Proc], lim: &Alerts, saturated: bo
             danger: true,
             culprits: top(procs.iter().filter(|p| p.state == 'D').collect(), |p| p.mem_kb as f32),
             cpu: vec![],
+            workers: vec![],
         })
     } else if s.psi_cpu > psi_cpu || saturated {
-        let (culprits, cpu) = cpu_roots(procs, lim.cpu_culprit_min as f32).into_iter().unzip();
+        let roots = cpu_roots(procs, lim.cpu_culprit_min as f32);
         Some(Alert {
             kind: Pressure::Cpu,
             // Saturation alone is amber: nothing waits yet, the machine is just full.
             danger: s.psi_cpu > psi_cpu,
-            culprits,
-            cpu,
+            culprits: roots.iter().map(|r| r.0).collect(),
+            cpu: roots.iter().map(|r| r.1).collect(),
+            workers: roots.into_iter().map(|r| r.2).collect(),
         })
     } else {
         None
@@ -1000,10 +1027,15 @@ mod tests {
         let mut sampler = Sampler::new();
         std::thread::sleep(std::time::Duration::from_millis(1500));
         let sample = sampler.sample();
-        for (p, cpu) in cpu_roots(&sample.procs, 1.0) {
+        for (p, cpu, workers) in cpu_roots(&sample.procs, 1.0) {
             println!(
-                "{} {} {cpu:.0}% (pgrp {} sid {} tty {})",
-                p.pid, p.name, p.pgrp, p.sid, p.tty
+                "{} {} {cpu:.0}% + {} (pgrp {} sid {} tty {})",
+                p.pid,
+                p.name,
+                workers.len(),
+                p.pgrp,
+                p.sid,
+                p.tty
             );
         }
     }
@@ -1081,6 +1113,29 @@ mod tests {
             p(322, 320, "firefox", "me", 100.0, ses),
         ];
         assert_eq!(top(&desk), [(320, 255.0)]);
+        // A build from a tool with no job control: everything shares the session's group, no tty. The parent of the
+        // busy `rustc` workers is the job (cargo), not the idle wrappers above it and not each worker.
+        let sess = (500, 500, false);
+        let cargo = [
+            p(500, 1, "zsh", "me", 0.0, sess),
+            p(510, 500, "claude", "me", 6.0, sess),
+            p(520, 510, "cargo-clippy", "me", 0.0, sess),
+            p(530, 520, "cargo", "me", 6.0, sess),
+            p(531, 530, "rustc", "me", 50.0, sess),
+            p(532, 530, "rustc", "me", 70.0, sess),
+            p(533, 530, "rustc", "me", 60.0, sess),
+            p(534, 530, "rustc", "me", 0.0, sess),
+        ];
+        assert_eq!(top(&cargo), [(530, 186.0)]);
+        let a = pressure(&SysStats::default(), &cargo, &Alerts::default(), true).unwrap();
+        assert_eq!(a.workers[0].iter().map(|p| p.pid).collect::<Vec<_>>(), [531, 532, 533]);
+        // A session leader with two busy children of one program is not their job (they stay separate).
+        let leader = [
+            p(600, 1, "zsh", "me", 0.0, (600, 600, false)),
+            p(601, 600, "rustc", "me", 60.0, (600, 600, false)),
+            p(602, 600, "rustc", "me", 70.0, (600, 600, false)),
+        ];
+        assert_eq!(top(&leader), [(602, 70.0), (601, 60.0)]);
         // Another user's process is never climbed into.
         let other = [
             p(40, 1, "daemon", "root", 0.0, (40, 40, false)),

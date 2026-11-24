@@ -15,12 +15,15 @@
   <launchable type="desktop-id">io.github.evandro777.FastProcMan.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.2.2" date="2026-11-19">
+    <release version="0.2.2" date="2026-11-24">
       <description>
         <ul>
           <li>Quit/Force quit can also end the process's children, so a runaway job leaves no orphans.</li>
           <li>The slowdown warning blames the job as a whole, not one of its workers, and warns when the CPU is saturated.</li>
           <li>The Graphs page now supports Intel GPUs, shows each core's load and has memory and swap pies.</li>
+          <li>The slowdown warning now blames a whole build (such as cargo and its rustc workers) instead of each worker, including builds started by tools without job control.</li>
+          <li>The warning shows how many workers are grouped, and highlights them in the list.</li>
+          <li>The Flatpak now uses the Freedesktop 26.08 runtime.</li>
         </ul>
       </description>
     </release>

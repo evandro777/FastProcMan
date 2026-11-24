@@ -90,7 +90,7 @@ Release gotchas (each one broke a first release):
 
 ## Flatpak
 
-App id `io.github.evandro777.FastProcMan`; `flatpak/build.sh --devel` installs `...FastProcMan.Devel` next to a release. Needs `flatpak-builder` and `org.freedesktop.Sdk//25.08` + `org.freedesktop.Sdk.Extension.rust-stable//25.08`. The runtime version `25.08` appears in five places (the manifest, the container image tag, the rust-stable install and its `GITHUB_PATH` line in `flatpak.yml`, and the header of `flatpak/build.sh`): bump them together.
+App id `io.github.evandro777.FastProcMan`; `flatpak/build.sh --devel` installs `...FastProcMan.Devel` next to a release. Needs `flatpak-builder` and `org.freedesktop.Sdk//26.08` + `org.freedesktop.Sdk.Extension.rust-stable//26.08`. The runtime version `26.08` appears in five places (the manifest, the container image tag, the rust-stable install and its `GITHUB_PATH` line in `flatpak.yml`, and the header of `flatpak/build.sh`): bump them together.
 
 - Auto-update = our own signed OSTree remote on GitHub Pages (`flatpak.yml`: `bundle` → `pages` → `release`), deployed on `v*` tags only. Every deploy replaces the whole site, so never deploy Pages from another trigger. The public key is `flatpak/signing-key.b64` (base64 of the binary export, made by `flatpak/new-signing-key.sh`; the template ships none); the private half is the secret `FLATPAK_GPG_PRIVATE_KEY`. See `docs/FLATPAK-SIGNING.md`.
 - Keep `finish-args` minimal (the manifest says how for X11-only apps and trays). The build vendors crates (`cargo vendor`), so `flatpak/vendor` must not be in the manifest's `skip:`.

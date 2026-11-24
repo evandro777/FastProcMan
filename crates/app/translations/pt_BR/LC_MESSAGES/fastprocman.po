@@ -16,6 +16,10 @@ msgid "{} ({})"
 msgstr "{} ({})"
 
 msgctxt "Tr"
+msgid "{} + {} ({})"
+msgstr "{} + {} ({})"
+
+msgctxt "Tr"
 msgid "Processes"
 msgstr "Processos"
 

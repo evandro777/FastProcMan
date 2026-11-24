@@ -435,7 +435,10 @@ impl State {
                         sys::Pressure::Cpu => tr.invoke_percent(format!("{:.0}", self.cpu_shown(a.cpu[i])).into()),
                         _ => size(tr, p.mem_kb as f64 * 1024.0),
                     };
-                    tr.invoke_alert_item(p.name.as_str().into(), value)
+                    match a.workers.get(i).map(Vec::len).filter(|&n| n > 0) {
+                        Some(n) => tr.invoke_alert_group(p.name.as_str().into(), n.to_string().into(), value),
+                        None => tr.invoke_alert_item(p.name.as_str().into(), value),
+                    }
                 })
             })
             .collect();
@@ -443,7 +446,16 @@ impl State {
             .iter()
             .flat_map(|a| a.culprits.iter().map(|p| (p.pid, p.start, p.name.clone())))
             .collect();
-        let risky: HashSet<(u32, u64)> = culprits.iter().map(|(pid, start, _)| (*pid, *start)).collect();
+        // The workers folded into a culprit are drawn amber with it: one job, one colour.
+        let risky: HashSet<(u32, u64)> = culprits
+            .iter()
+            .map(|(pid, start, _)| (*pid, *start))
+            .chain(
+                alert
+                    .iter()
+                    .flat_map(|a| a.workers.iter().flatten().map(|p| (p.pid, p.start))),
+            )
+            .collect();
         self.alert = culprits;
 
         let rows = list

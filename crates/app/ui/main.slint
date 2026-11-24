@@ -54,6 +54,10 @@ export global Tr {
     public pure function alert-cpu() -> string { return @tr("CPU overloaded"); }
     // Same text as `process-label` (`{} ({})`), with a ready-made value (a size or a percentage).
     public pure function alert-item(name: string, value: string) -> string { return @tr("{} ({})", name, value); }
+    // A job root with the workers folded into it: `cargo + 4 (249%)`.
+    public pure function alert-group(name: string, n: string, value: string) -> string {
+        return @tr("{} + {} ({})", name, n, value);
+    }
     public pure function status-ended(label: string) -> string { return @tr("Asked {} to quit", label); }
     public pure function status-killed(label: string) -> string { return @tr("Forced {} to quit", label); }
     public pure function status-exited() -> string { return @tr("The process has already exited"); }

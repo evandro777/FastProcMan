@@ -3,8 +3,8 @@
 #   flatpak/build.sh            release id  io.github.evandro777.FastProcMan        (replaces an installed FastProcMan!)
 #   flatpak/build.sh --devel    dev id      io.github.evandro777.FastProcMan.Devel  (installs next to it)
 #   flatpak/build.sh --bundle   also write fastprocman.flatpak
-# Needs: flatpak-builder, and once: flatpak install flathub org.freedesktop.Sdk//25.08 \
-#        org.freedesktop.Sdk.Extension.rust-stable//25.08
+# Needs: flatpak-builder, and once: flatpak install flathub org.freedesktop.Sdk//26.08 \
+#        org.freedesktop.Sdk.Extension.rust-stable//26.08
 set -euo pipefail
 cd "$(dirname "$0")"
 # CI sets FLATPAK_INSTALLATION=--system: its container has the SDK installed system-wide (updating it there fails
