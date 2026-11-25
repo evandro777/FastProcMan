@@ -295,7 +295,12 @@ impl Sampler {
             let dir = format!("/proc/{pid}");
             // The process may exit between listing and reading: skip it silently on any error.
             let stat = read(&format!("{dir}/stat"));
-            let (Some((name, t, start, state, ppid)), Some((pgrp, sid, tty))) = (parse_stat(&stat), parse_job(&stat))
+            // Split once for both: this runs for every process on every tick.
+            let Some((name, fields)) = split_stat(&stat) else {
+                continue;
+            };
+            let (Some((name, t, start, state, ppid)), Some((pgrp, sid, tty))) =
+                (stat_fields(name, &fields), job_fields(&fields))
             else {
                 continue;
             };
@@ -420,6 +425,10 @@ fn split_stat(text: &str) -> Option<(&str, Vec<&str>)> {
 /// `(name, utime+stime, starttime, state, ppid)`.
 fn parse_stat(text: &str) -> Option<(String, u64, u64, char, u32)> {
     let (name, rest) = split_stat(text)?;
+    stat_fields(name, &rest)
+}
+
+fn stat_fields(name: &str, rest: &[&str]) -> Option<(String, u64, u64, char, u32)> {
     // utime = field 14 -> index 11, stime = 15 -> 12, starttime = 22 -> 19, ppid = 4 -> 1.
     let ticks = rest.get(11)?.parse::<u64>().ok()? + rest.get(12)?.parse::<u64>().ok()?;
     let start = rest.get(19)?.parse().ok()?;
@@ -428,8 +437,7 @@ fn parse_stat(text: &str) -> Option<(String, u64, u64, char, u32)> {
 }
 
 /// `(process group, session, has a controlling terminal)`: stat fields 5, 6 and 7 -> indexes 2, 3, 4.
-fn parse_job(text: &str) -> Option<(u32, u32, bool)> {
-    let (_, rest) = split_stat(text)?;
+fn job_fields(rest: &[&str]) -> Option<(u32, u32, bool)> {
     let tty: i64 = rest.get(4)?.parse().ok()?;
     Some((rest.get(2)?.parse().ok()?, rest.get(3)?.parse().ok()?, tty != 0))
 }
@@ -628,6 +636,8 @@ pub enum KillError {
     Cancelled,
     /// PID 1, or stopping/killing this app itself.
     Refused,
+    /// Some of a family were signalled, then the dialog for the rest was dismissed.
+    Partial,
     Failed(String),
 }
 
@@ -684,14 +694,41 @@ fn run_with_pkexec(tool: &str, args: &[String]) -> Result<(), KillError> {
             KillError::Failed(err)
         });
     }
+    // Retry only what was refused: signalling the rest again, as root, could hit a PID that was freed and reused
+    // while the dialog was open. A message that names no PID (renice, one target) retries everything.
+    let denied = denied_pids(&err);
+    let partial = partly_done(&err, args.len().saturating_sub(1));
+    let retry: Vec<&str> = match args.first() {
+        Some(sig) if !denied.is_empty() => std::iter::once(sig.as_str()).chain(denied).collect(),
+        _ => args.iter().map(String::as_str).collect(),
+    };
     let out = Command::new("timeout")
         .args([PKEXEC_WAIT_SECS, "pkexec"])
         .env("LC_ALL", "C")
         .arg(tool)
-        .args(args)
+        .args(retry)
         .output()
         .map_err(|e| KillError::Failed(e.to_string()))?;
-    pkexec_result(out.status.code(), String::from_utf8_lossy(&out.stderr).trim())
+    match pkexec_result(out.status.code(), String::from_utf8_lossy(&out.stderr).trim()) {
+        Err(KillError::Cancelled) if partial => Err(KillError::Partial),
+        r => r,
+    }
+}
+
+/// The PIDs `kill` was not allowed to signal, from lines like `/usr/bin/kill: (1): Operation not permitted`.
+fn denied_pids(err: &str) -> Vec<&str> {
+    err.lines()
+        .filter(|l| l.contains("not permitted"))
+        .filter_map(|l| Some(l.split_once('(')?.1.split_once(')')?.0))
+        .filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        .collect()
+}
+
+/// Some of the `targets` were signalled: not all of them were refused or already gone.
+fn partly_done(err: &str, targets: usize) -> bool {
+    let denied = denied_pids(err).len();
+    let gone = err.lines().filter(|l| l.contains("No such process")).count();
+    denied > 0 && targets > denied + gone
 }
 
 /// Maps pkexec's exit code (or `timeout`'s). 126 is a dismissed dialog and 124 one left open for `PKEXEC_WAIT_SECS`;
@@ -1041,12 +1078,24 @@ mod tests {
     }
 
     #[test]
+    fn only_refused_pids_are_retried_and_a_partial_kill_is_known() {
+        let err = "/usr/bin/kill: (1): Operation not permitted\n/usr/bin/kill: (99999999): No such process";
+        assert_eq!(denied_pids(err), ["1"]);
+        assert!(partly_done(err, 3));
+        assert!(!partly_done(err, 2), "one refused, one gone: nothing was signalled");
+        // renice names no PID in parentheses this way: retry as it was, and never "partial".
+        let renice = "renice: failed to set priority for 7 (process ID): Operation not permitted";
+        assert!(denied_pids(renice).is_empty() && !partly_done(renice, 3));
+    }
+
+    #[test]
     fn stat_job_fields() {
         let line =
             "42 (we) ird) S 1 77 88 34816 -1 4194560 1 0 0 0 7 5 0 0 20 0 1 0 12345 1000 10 18446744073709551615";
-        assert_eq!(parse_job(line), Some((77, 88, true)));
-        assert_eq!(parse_job("42 (x) S 1 5 5 0 -1"), Some((5, 5, false)));
-        assert_eq!(parse_job("42 (x) S 1"), None);
+        let job = |line| split_stat(line).and_then(|(_, rest)| job_fields(&rest));
+        assert_eq!(job(line), Some((77, 88, true)));
+        assert_eq!(job("42 (x) S 1 5 5 0 -1"), Some((5, 5, false)));
+        assert_eq!(job("42 (x) S 1"), None);
     }
 
     #[test]

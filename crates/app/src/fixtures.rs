@@ -2,12 +2,16 @@
 //! with zero, one or many rows without sampling or touching the real system.
 //! `FASTPROCMAN_FILTER=<text>` also applies a filter, to see the "no matching processes" state.
 //! `FASTPROCMAN_CALM=1` turns the slowdown banner off in `many`.
-use crate::{APP, Main, icons, on_sample, refresh, select};
+use crate::{APP, Main, icons, on_sample, open_properties, refresh, select};
 use fastprocman_core::{
     gpu::GpuStats,
+    mounts::Mount,
     services::{Service, Status},
     sys::{Details, DiskStats, Proc, Reason, Sample, SysStats},
+    tree,
 };
+use slint::{ComponentHandle, Model};
+use std::time::Duration;
 
 /// 0 empty, 1 single, 2 many; `None` when the variable is unset or unknown.
 pub fn mode() -> Option<usize> {
@@ -184,6 +188,7 @@ fn services(n: usize) -> Vec<Service> {
         .map(|&(name, status, startup, pid, user, cpu_pct, mem_kb)| Service {
             name: name.into(),
             status,
+            active: matches!(status, Status::Running | Status::Exited),
             startup: startup.into(),
             pid,
             user: user.into(),
@@ -194,6 +199,110 @@ fn services(n: usize) -> Vec<Service> {
 }
 
 /// Rows and chart history as `[0, 1, 18]` and `[1, 2, 60]` samples, so one fixture covers all three states.
+fn mounts(n: usize) -> Vec<Mount> {
+    // Sizes in MB; a nearly full stick (warning colour) and a long share path (elided).
+    [
+        ("/dev/nvme0n1p2", "/", "btrfs", 487_873, 335_571, 151_251),
+        ("/dev/nvme0n1p2", "/home", "btrfs", 487_873, 335_571, 151_251),
+        ("/dev/nvme0n1p1", "/boot/efi", "vfat", 511, 6, 505),
+        ("/dev/sda1", "/media/user/USB STICK", "exfat", 29_500, 28_100, 1_400),
+        (
+            "//nas.local/backups",
+            "/mnt/nas backups/photos",
+            "cifs",
+            3_800_000,
+            1_200_000,
+            2_600_000,
+        ),
+    ]
+    .into_iter()
+    .take(n)
+    .map(
+        |(device, target, fstype, total, used, avail): (_, _, _, u64, u64, u64)| Mount {
+            device: device.into(),
+            target: target.into(),
+            fstype: fstype.into(),
+            total: total << 20,
+            used: used << 20,
+            avail: avail << 20,
+        },
+    )
+    .collect()
+}
+
+/// `FASTPROCMAN_PAGE` opens a page, a dialog or the context menu directly, for the same script. With or without
+/// fixtures.
+pub fn open_page(ui: &Main) {
+    match std::env::var("FASTPROCMAN_PAGE").as_deref() {
+        Ok("about") => ui.set_about_open(true),
+        Ok("settings") => ui.set_settings_open(true),
+        Ok(p @ ("confirm" | "confirm-kill")) => {
+            // The fixture's one process with an icon (fastprocman, 1011), so the snapshot shows it in the title.
+            if let Some(row) = APP.with_borrow(|s| s.shown.iter().position(|k| k.0 == 1011)) {
+                select(ui, row as i32);
+                ui.set_selected_row(row as i32);
+                if let Some(r) = ui.get_rows().row_data(row) {
+                    ui.set_confirm_icon(r.icon);
+                }
+            }
+            ui.set_confirm_force(p == "confirm-kill");
+            // A parent with workers, so the snapshot shows the checkbox (plural and singular).
+            ui.set_confirm_kids(if p == "confirm-kill" { 1 } else { 16 });
+            ui.set_confirm_label(ui.get_selected_label());
+            ui.set_confirm_open(true);
+        }
+        Ok("properties") => {
+            // The fixture's flagged process (updater, 1002), so the snapshot shows the Warning row and its note.
+            if let Some(row) = APP.with_borrow(|s| s.shown.iter().position(|k| k.0 == 1002)) {
+                select(ui, row as i32);
+            }
+            open_properties(ui)
+        }
+        Ok("tree") => {
+            // Not saved: a snapshot must not change the owner's settings. The tree starts open; firefox (1000) is
+            // closed, so the snapshot shows both chevrons and a collapsed row's totals.
+            ui.set_tree(true);
+            // Fixture rows have no launchers (no resolver runs), so name the apps here: firefox is cut out of its
+            // parent cinnamon, Xorg and pipewire are two programs of one app (one group), and the rest is
+            // "Processes". The apps start closed; Firefox is opened to show its children.
+            APP.with_borrow_mut(|s| {
+                s.tree = true;
+                s.flipped.insert((1000, 1000));
+                s.flipped.insert(tree::group_key("Firefox Web Browser"));
+                for (key, app) in [
+                    ("firefox", "Firefox Web Browser"),
+                    ("fastprocman", "FastProcMan"),
+                    ("Xorg", "Display Server"),
+                    ("pipewire", "Display Server"),
+                ] {
+                    s.apps.insert(key.into(), app.into());
+                }
+            });
+            refresh(ui);
+        }
+        Ok("menu") => {
+            // The popup needs the window shown and laid out first.
+            let weak = ui.as_weak();
+            slint::Timer::single_shot(Duration::from_millis(300), move || {
+                weak.upgrade().iter().for_each(|ui| ui.invoke_show_menu());
+            });
+        }
+        Ok("confirm-service") => {
+            ui.set_page(2);
+            ui.set_confirm_service(1);
+            ui.set_confirm_label(ui.get_svc_selected_label());
+            ui.set_confirm_open(true);
+        }
+        // A window tall enough for every Graphs card, which the 700 px default scrolls.
+        Ok("graphs-tall") => {
+            ui.set_page(1);
+            ui.window().set_size(slint::LogicalSize::new(860.0, 1150.0));
+        }
+        Ok(p) => ui.set_page(p.parse().unwrap_or(0)),
+        Err(_) => {}
+    }
+}
+
 pub fn apply(ui: &Main, mode: usize) {
     // No resolver thread here: one row gets the app's own icon and the rest keep the empty slot, so a snapshot shows
     // both. The key is the process name because fixture rows have no program path.
@@ -214,6 +323,7 @@ pub fn apply(ui: &Main, mode: usize) {
         );
     }
     crate::svc::on_services(ui, services([0, 1, 8][mode]));
+    crate::on_mounts(ui, mounts([0, 1, 5][mode]));
     if mode > 0 {
         ui.invoke_svc_row_selected(0);
     }

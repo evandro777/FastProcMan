@@ -64,6 +64,10 @@ msgid "{} GB"
 msgstr "{} GB"
 
 msgctxt "Tr"
+msgid "{} TB"
+msgstr "{} TB"
+
+msgctxt "Tr"
 msgid "{}/s"
 msgstr "{}/s"
 
@@ -122,6 +126,10 @@ msgstr "O processo já terminou"
 msgctxt "Tr"
 msgid "Cancelled"
 msgstr "Cancelado"
+
+msgctxt "Tr"
+msgid "Some were quit; the rest need the password"
+msgstr "Alguns foram encerrados; os demais exigem a senha"
 
 msgctxt "Tr"
 msgid "PID 1 and FastProcMan itself cannot be quit"
@@ -718,6 +726,46 @@ msgstr "Nenhum serviço encontrado"
 msgctxt "ServicesPage"
 msgid "Press Esc to clear the filter"
 msgstr "Pressione Esc para limpar o filtro"
+
+msgctxt "Main"
+msgid "File systems"
+msgstr "Sistemas de arquivos"
+
+msgctxt "Tr"
+msgid "{} ({}%)"
+msgstr "{} ({}%)"
+
+msgctxt "FileSystemsPage"
+msgid "Device"
+msgstr "Dispositivo"
+
+msgctxt "FileSystemsPage"
+msgid "Mounted on"
+msgstr "Montado em"
+
+msgctxt "FileSystemsPage"
+msgid "Type"
+msgstr "Tipo"
+
+msgctxt "FileSystemsPage"
+msgid "Total"
+msgstr "Total"
+
+msgctxt "FileSystemsPage"
+msgid "Used"
+msgstr "Usado"
+
+msgctxt "FileSystemsPage"
+msgid "Free"
+msgstr "Livre"
+
+msgctxt "FileSystemsPage"
+msgid "No file systems found"
+msgstr "Nenhum sistema de arquivos encontrado"
+
+msgctxt "FileSystemsPage"
+msgid "Collecting…"
+msgstr "Coletando…"
 
 msgctxt "Confirm"
 msgid "Stop {}?"

@@ -1,5 +1,5 @@
 //! The Services tab: filtering, sorting and selection of the unit list, and start/stop/restart.
-use crate::{APP, Cmd, Main, ServiceRow, State, Tr, fixtures, size};
+use crate::{APP, Cmd, Main, Poll, ServiceRow, State, Tr, fixtures, size};
 use fastprocman_core::{
     services::{self, Service, Status},
     sys::KillError,
@@ -150,7 +150,7 @@ fn view(s: &mut State, tr: &Tr) -> View {
         .selected
         .as_ref()
         .and_then(|n| s.svc.list.iter().find(|v| &v.name == n))
-        .is_some_and(|v| matches!(v.status, Status::Running | Status::Exited));
+        .is_some_and(|v| v.active);
     s.svc.shown = shown;
     View {
         model: s.svc.model.clone(),
@@ -188,8 +188,9 @@ pub fn type_char(ui: &Main, text: &str) -> bool {
     true
 }
 
-/// Wires the tab's callbacks. `tx` tells the sampler when the tab is shown, so it lists services only then.
-pub fn connect(ui: &Main, tx: &mpsc::Sender<Cmd>) {
+/// Wires the tab's callbacks. `poll` tells the services thread when the tab is shown, so it lists them only then;
+/// `tx` asks the sampler for fresh processes after an action.
+pub fn connect(ui: &Main, tx: &mpsc::Sender<Cmd>, poll: &mpsc::Sender<Poll>) {
     ui.set_services(slint::ModelRc::from(APP.with_borrow(|s| s.svc.model.clone())));
     let weak = ui.as_weak();
     ui.on_svc_sort_ascending({
@@ -237,12 +238,12 @@ pub fn connect(ui: &Main, tx: &mpsc::Sender<Cmd>) {
         }
     });
     ui.on_services_shown({
-        let tx = tx.clone();
-        move |shown| _ = tx.send(Cmd::Services(shown))
+        let poll = poll.clone();
+        move |shown| _ = poll.send(Poll::Shown(shown))
     });
     for verb in ["start", "stop", "restart"] {
-        let (weak, tx) = (weak.clone(), tx.clone());
-        let f = move || weak.upgrade().iter().for_each(|ui| act(ui, &tx, verb));
+        let (weak, tx, poll) = (weak.clone(), tx.clone(), poll.clone());
+        let f = move || weak.upgrade().iter().for_each(|ui| act(ui, &tx, &poll, verb));
         match verb {
             "start" => ui.on_start_service(f),
             "stop" => ui.on_stop_service(f),
@@ -252,7 +253,7 @@ pub fn connect(ui: &Main, tx: &mpsc::Sender<Cmd>) {
 }
 
 /// Start, stop or restart the selected unit. Stop and restart arrive here only after the confirmation dialog.
-fn act(ui: &Main, tx: &mpsc::Sender<Cmd>, verb: &'static str) {
+fn act(ui: &Main, tx: &mpsc::Sender<Cmd>, poll: &mpsc::Sender<Poll>, verb: &'static str) {
     // Fixtures use made-up units; never touch the real system for them.
     if fixtures::mode().is_some() {
         return;
@@ -262,7 +263,7 @@ fn act(ui: &Main, tx: &mpsc::Sender<Cmd>, verb: &'static str) {
         ui.set_status(ui.global::<Tr>().invoke_status_exited());
         return;
     };
-    let (weak, tx) = (ui.as_weak(), tx.clone());
+    let (weak, tx, poll) = (ui.as_weak(), tx.clone(), poll.clone());
     // systemctl waits for the polkit dialog, so this must never run on the UI thread.
     thread::spawn(move || {
         let result = services::control(verb, &unit);
@@ -281,6 +282,7 @@ fn act(ui: &Main, tx: &mpsc::Sender<Cmd>, verb: &'static str) {
             });
         });
         let _ = tx.send(Cmd::Now);
+        let _ = poll.send(Poll::Now);
     });
 }
 
@@ -292,6 +294,7 @@ mod tests {
         Service {
             name: name.into(),
             status,
+            active: matches!(status, Status::Running | Status::Exited),
             startup: startup.into(),
             pid: 0,
             user: String::new(),

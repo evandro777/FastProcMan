@@ -23,7 +23,7 @@ Just start typing to filter by name or PID (`Ctrl+F` also focuses the box); `Esc
 The `Menu` key or `Shift+F10` opens the same menu for the selected row.
 
 - **Quit…** (asks the program to close, SIGTERM, `Delete`, also a button in the bottom bar when the tree is off) and **Force quit…** (stops it at once, SIGKILL, `Shift+Delete`; for a program that does not respond) always ask for confirmation first. Your own processes are signalled directly; for other users' processes the app falls back to `pkexec`, so polkit asks for the password (the prompt is cancelled after 60 seconds). The process is checked again right before the signal (before the password prompt, for other users' processes), so a re-sorted table or a reused PID does not kill the wrong one. PID 1 and FastProcMan itself are refused.
-- **Children:** when the process has children, the confirmation shows "Also include its N child processes", ticked each time (`Space` flips it). Quit and Force quit then signal the process and everything under it in one go, parent first so a program that restarts workers (`xargs`, `make`) is gone before they are signalled; one password prompt covers all of them. Untick it to end only that process. The list is read from `/proc` at the moment you confirm; PID 1 and FastProcMan itself are never in it, and a child started after that moment is missed.
+- **Children:** when the process has children, the confirmation shows "Also include its N child processes", ticked each time (`Space` flips it). Quit and Force quit then signal the process and everything under it in one go, parent first so a program that restarts workers (`xargs`, `make`) is gone before they are signalled; one password prompt covers all of them (if you dismiss it after your own processes were already signalled, the status line says so). Untick it to end only that process. The list is read from `/proc` at the moment you confirm; PID 1 and FastProcMan itself are never in it, and a child started after that moment is missed.
 - **Suspend / Resume** (SIGSTOP / SIGCONT).
 - **Priority:** very high (-10), high (-5), normal (0), low (5) or very low (19). Raising the priority needs `pkexec`.
 - **Properties:** parent PID, state, threads, priority, running time, memory, resident memory, shared memory, virtual memory, disk read and written since start, program, command line and working folder (selectable text). What the system hides from you, for example another user's program path, shows as "Unavailable". The values update while it is open, and `Esc` closes it.
@@ -71,12 +71,19 @@ Network and disks count physical devices only. The GPU card needs the NVIDIA dri
 
 ## Services tab
 
-The system's systemd services with the process table's columns (Name, PID, User, CPU %, Memory) plus **Status** (Running, Exited for a finished oneshot, Failed, Stopped) and **Startup** (Enabled, Disabled, Static, Masked).
+The system's systemd services with the process table's columns (Name, PID, User, CPU %, Memory) plus **Status** (Running, Exited for a finished oneshot, Failed, Stopped) and **Startup** (Enabled, Disabled, Static, Masked). A service waiting to be restarted after a crash shows as Failed and can still be stopped; one that is starting, reloading or stopping shows as Running.
 
 - PID, CPU and memory are the sums over the service's cgroup (blank when it has no process).
 - Just start typing to filter by name, and pick a **Status** (Running / Failed / Stopped) and a **Startup** (Enabled / Disabled / Static / Masked) in two separate boxes, which combine.
 - **Start**, **Stop** and **Restart** the selected one from the bottom bar. Stop and Restart ask first. The password prompt is polkit's, shown by `systemctl` itself.
 - Only system services; user services and enabling/disabling are not supported. The list is read only while the tab is shown. `Ctrl+F` focuses its filter box.
+
+## File systems tab
+
+Mounted file systems on real devices (disks, USB sticks, network shares, FUSE drives), in mount order: **Device**, **Mounted on**, **Type**, **Total**, **Used** and **Free**, the last two with a percentage. Percentages are those of `df` (space reserved for root is left out, so Used + Free can be less than Total). A small meter turns amber from 90 % used.
+
+- In-memory file systems (tmpfs and the like), snap and AppImage images and mounts with no size are not listed. A btrfs partition mounted twice (`/` and `/home`) shows once per mount.
+- Nothing is read until the tab is opened; while it is shown the list follows the refresh interval (`findmnt`, given up after 5 s). Read-only: no mounting or unmounting.
 
 ## Keyboard
 

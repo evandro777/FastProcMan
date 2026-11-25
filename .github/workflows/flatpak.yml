@@ -81,6 +81,11 @@ jobs:
           path: |
             FastProcMan-*.flatpak
 
+  # A tag may point at a commit CI never saw: nothing is published unless it passes.
+  test:
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/ci.yml
+
   # Own Flatpak remote on GitHub Pages (until Flathub accepts the app): `flatpak update` then works.
   # One-time setup (RELEASING.md): Settings -> Pages -> Source: GitHub Actions, and a `v*` tag rule on the
   # github-pages environment. The repo is signed with the key in flatpak/signing-key.b64 (private half: secret
@@ -88,7 +93,7 @@ jobs:
   # Every deploy replaces the whole site, so the page only changes with a tag; never deploy it from master.
   pages:
     name: Publish Flatpak remote
-    needs: bundle
+    needs: [bundle, test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

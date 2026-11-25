@@ -23,6 +23,7 @@ export global Tr {
     public pure function size-kb(v: string) -> string { return @tr("{} KB", v); }
     public pure function size-mb(v: string) -> string { return @tr("{} MB", v); }
     public pure function size-gb(v: string) -> string { return @tr("{} GB", v); }
+    public pure function size-tb(v: string) -> string { return @tr("{} TB", v); }
     public pure function rate(size: string) -> string { return @tr("{}/s", size); }
     public pure function graph-cpu() -> string { return @tr("CPU"); }
     public pure function graph-memory() -> string { return @tr("Memory"); }
@@ -40,6 +41,7 @@ export global Tr {
         return @tr("{} of {} ({}%)", used, total, pct);
     }
     public pure function percent(v: string) -> string { return @tr("{}%", v); }
+    public pure function size-share(size: string, pct: string) -> string { return @tr("{} ({}%)", size, pct); }
     // Second line of a graph card, named so it is not mistaken for the first one (swap, video memory).
     public pure function labelled(name: string, v: string) -> string { return @tr("{}: {}", name, v); }
     // The top of an autoscaled graph, so a line at the top is not read as "a lot".
@@ -62,6 +64,7 @@ export global Tr {
     public pure function status-killed(label: string) -> string { return @tr("Forced {} to quit", label); }
     public pure function status-exited() -> string { return @tr("The process has already exited"); }
     public pure function status-cancelled() -> string { return @tr("Cancelled"); }
+    public pure function status-partial() -> string { return @tr("Some were quit; the rest need the password"); }
     public pure function status-refused() -> string {
         return @tr("PID 1 and FastProcMan itself cannot be quit");
     }
@@ -148,6 +151,17 @@ export struct ServiceRow {
     memory: string,
     status: string,
     startup: string,
+}
+
+// One row of the File systems table, formatted in Rust. `fill` (0 to 1) drives the meter.
+export struct FsRow {
+    device: string,
+    target: string,
+    kind: string,
+    total: string,
+    used: string,
+    free: string,
+    fill: float,
 }
 
 // One chart's data, filled by Rust. Paths are in a 59 x 100 box (newest sample at x = 59, y grows downwards).
@@ -1479,7 +1493,117 @@ component GraphsPage inherits Rectangle {
     }
 }
 
+// Fixed widths; Device and Mounted on share the rest. They fit the 640 px minimum window.
+global FsCols {
+    out property <length> kind: 64px;
+    out property <length> total: 84px;
+    // The Used column is its meter plus this much text.
+    out property <length> used-text: 132px;
+    out property <length> free: 124px;
+}
+
+component FsRowItem inherits Rectangle {
+    in property <FsRow> info;
+    in property <bool> odd;
+    in property <length> meter;
+    property <brush> fg: Palette.foreground;
+    height: Cols.row-h;
+    background: root.odd ? Palette.foreground.with-alpha(0.03) : transparent;
+    accessible-role: list-item;
+    accessible-label: root.info.device + " " + root.info.target;
+    accessible-description: root.info.used;
+
+    HorizontalLayout {
+        padding-right: Cols.bar;
+        Cell { horizontal-stretch: 1; min-width: 60px; preferred-width: 0px; text: root.info.device; fg: root.fg; }
+        Cell { horizontal-stretch: 1; min-width: 60px; preferred-width: 0px; text: root.info.target; fg: root.fg; }
+        Cell { width: FsCols.kind; text: root.info.kind; fg: root.fg; }
+        Cell { width: FsCols.total; text: root.info.total; fg: root.fg; align: right; }
+        // The meter makes a nearly full disk stand out before any number is read.
+        HorizontalLayout {
+            width: root.meter + FsCols.used-text;
+            padding-left: 8px;
+            Rectangle {
+                width: root.meter;
+                height: 8px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 4px;
+                background: Palette.foreground.with-alpha(0.12);
+                Rectangle {
+                    x: 0px;
+                    width: parent.width * root.info.fill;
+                    height: parent.height;
+                    border-radius: 4px;
+                    background: root.info.fill >= 0.9 ? Family.warning : Palette.accent-background;
+                }
+            }
+            Cell { horizontal-stretch: 1; text: root.info.used; fg: root.fg; }
+        }
+        Cell { width: FsCols.free; text: root.info.free; fg: root.fg; align: right; }
+    }
+}
+
+component FileSystemsPage inherits Rectangle {
+    in property <[FsRow]> rows;
+    // False until the first list arrives.
+    in property <bool> ready;
+    // A narrow window keeps a short meter, or the device and mount names would be cut to nothing.
+    property <length> meter: root.width < 760px ? 32px : 96px;
+
+    VerticalLayout {
+        padding: 8px;
+        Rectangle {
+            VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+                Rectangle {
+                    height: Cols.head-h;
+                    background: Palette.alternate-background;
+                    HorizontalLayout {
+                        // Placed by hand so the page does not size itself from `meter`, which depends on its width
+                        // (a binding loop, which Slint may panic on).
+                        x: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        padding-right: Cols.bar;
+                        // Not sortable: the order is the system's mount order, `/` first.
+                        HeaderCell { horizontal-stretch: 1; min-width: 60px; preferred-width: 0px; title: @tr("Device"); }
+                        HeaderCell { horizontal-stretch: 1; min-width: 60px; preferred-width: 0px; title: @tr("Mounted on"); }
+                        HeaderCell { width: FsCols.kind; title: @tr("Type"); }
+                        HeaderCell { width: FsCols.total; title: @tr("Total"); align: right; }
+                        HeaderCell { width: root.meter + FsCols.used-text; title: @tr("Used"); }
+                        HeaderCell { width: FsCols.free; title: @tr("Free"); align: right; }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Palette.border;
+                    }
+                }
+                ListView {
+                    for data[i] in root.rows: FsRowItem {
+                        info: data;
+                        odd: mod(i, 2) == 1;
+                        meter: root.meter;
+                    }
+                }
+            }
+            if root.rows.length == 0: Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.ready ? @tr("No file systems found") : @tr("Collecting…");
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
 export component Main inherits Window {
+    in property <[FsRow]> file-systems;
+    in property <bool> file-systems-ready;
+    // Rust reads the file systems only while the tab is shown.
+    callback file-systems-shown(bool);
     in property <string> version;
     in-out property <bool> about-open: false;
     in-out property <bool> settings-open: false;
@@ -1629,6 +1753,7 @@ export component Main inherits Window {
             shortcuts.focus();
         }
         root.services-shown(root.page == 2);
+        root.file-systems-shown(root.page == 3);
         root.page-changed();
     }
 
@@ -1670,7 +1795,7 @@ export component Main inherits Window {
             }
             // Here, not in `key-pressed`: a focused box or combo would use Tab for focus traversal first.
             if event.modifiers.control && (event.text == Key.Tab || event.text == Key.Backtab) {
-                root.page = Math.mod(root.page + (event.text == Key.Backtab || event.modifiers.shift ? 2 : 1), 3);
+                root.page = Math.mod(root.page + (event.text == Key.Backtab || event.modifiers.shift ? 3 : 1), 4);
                 return accept;
             }
             return reject;
@@ -1684,7 +1809,7 @@ export component Main inherits Window {
                     svcs.clear-filter();
                     return accept;
                 }
-                if root.page != 2 && root.filter != "" {
+                if root.page < 2 && root.filter != "" {
                     procs.clear-filter();
                     return accept;
                 }
@@ -1704,7 +1829,7 @@ export component Main inherits Window {
                 return accept;
             }
             // Typing starts filtering on the Processes and Services tabs; Rust routes it by `page`.
-            if root.page != 1 && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta
+            if (root.page == 0 || root.page == 2) && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta
                 && root.type-char(event.text) {
                 return accept;
             }
@@ -1795,7 +1920,7 @@ export component Main inherits Window {
                 // alive and are only hidden: a page made with `if` would lose its scroll position and sort arrows.
                 TabBar {
                     end-space: 34px;
-                    for title[i] in [@tr("Processes"), @tr("Graphs"), @tr("Services")]: TabItem {
+                    for title[i] in [@tr("Processes"), @tr("Graphs"), @tr("Services"), @tr("File systems")]: TabItem {
                         title: title;
                         active: root.page == i;
                         clicked => { root.page = i; }
@@ -1852,6 +1977,13 @@ export component Main inherits Window {
                         sort-descending(c) => { root.svc-sort-descending(c); }
                         focus-list => { shortcuts.focus(); }
                     }
+                    FileSystemsPage {
+                        width: parent.width;
+                        height: parent.height;
+                        visible: root.page == 3;
+                        rows: root.file-systems;
+                        ready: root.file-systems-ready;
+                    }
                 }
             }
             // On the right end of the tab headers, on every tab.
@@ -1868,7 +2000,7 @@ export component Main inherits Window {
                 padding: 8px;
                 // Tight: with the tree controls the bar must still fit 640 px in the longest language (pt_BR).
                 spacing: 8px;
-                Text { text: root.page == 2 ? root.svc-count-text : root.count-text; vertical-alignment: center; }
+                Text { text: root.page == 3 ? "" : root.page == 2 ? root.svc-count-text : root.count-text; vertical-alignment: center; }
                 if root.page == 2: Button {
                     text: @tr("Start");
                     enabled: root.svc-selected-label != "" && !root.svc-selected-active;

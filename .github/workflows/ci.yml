@@ -4,12 +4,15 @@ on:
   push:
     branches: [master]
   pull_request:
+  # The release workflows run this on a tag before they publish.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # `workflow` is the caller's name when called, so the two release workflows do not cancel each other.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -25,6 +25,7 @@ Page: <https://evandro777.github.io/FastProcMan/>
 - **Slowdown warning:** a banner warns before the system freezes (low memory, busy disk or CPU) and names the likely culprits, one click from selecting them. It never ends anything by itself. The limits that trigger it are in Preferences.
 - **Graphs:** the last minute of CPU (and each core, with its current load), memory and swap (with a small pie of how full each is), network, GPU (NVIDIA, AMD or Intel) and each disk.
 - **Services:** the systemd services with status and startup state; start, stop and restart them (stop and restart ask first).
+- **File systems:** every mounted disk, stick and network share with its device, mount point, type, size, used and free space.
 - English and Brazilian Portuguese, a CPU % scope setting, and a remembered window size.
 
 Every feature in detail, with the shortcuts: [`docs/FEATURES.md`](docs/FEATURES.md).

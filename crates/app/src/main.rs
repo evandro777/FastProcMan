@@ -1,4 +1,5 @@
 use fastprocman_core::{
+    mounts::{self, Mount},
     services,
     settings::{Alerts, INTERVALS, Settings},
     sys::{self, KillError, Proc, Reason, Sample, Sampler, Signal, SysStats},
@@ -35,8 +36,15 @@ enum Cmd {
     Interval(u32),
     /// Resample soon (after a kill).
     Now,
-    /// The Services tab was shown or hidden: list services only while it is visible.
-    Services(bool),
+}
+
+/// For a tab's listing thread (Services, File systems).
+enum Poll {
+    /// The tab was shown or hidden: list only while it is visible.
+    Shown(bool),
+    Interval(u32),
+    /// List again soon (after a start or stop).
+    Now,
 }
 
 #[derive(Default)]
@@ -109,6 +117,8 @@ struct State {
     /// scroll position.
     graphs: Rc<VecModel<GraphData>>,
     svc: svc::Svc,
+    /// The File systems table; empty until its tab is first opened.
+    mounts: Rc<VecModel<FsRow>>,
 }
 
 /// What an icon is filed under: the program's path, else its name (other users' processes have no readable path).
@@ -170,6 +180,7 @@ thread_local! {
         model: Rc::new(VecModel::default()),
         graphs: Rc::new(VecModel::default()),
         svc: svc::Svc::new(),
+        mounts: Rc::new(VecModel::default()),
     });
 }
 
@@ -177,7 +188,8 @@ thread_local! {
 /// so no `RefCell` borrow is ever held across a call into Slint.
 struct View {
     model: Rc<VecModel<ProcRow>>,
-    rows: Vec<ProcRow>,
+    /// `None` while the Processes tab is hidden: the order and selection are still kept, only the strings are skipped.
+    rows: Option<Vec<ProcRow>>,
     selected_row: i32,
     selected_label: SharedString,
     selected_stopped: bool,
@@ -231,7 +243,7 @@ struct Shown {
     hidden_warn: Option<Reason>,
 }
 
-/// Unit (0 B, 1 KB, 2 MB, 3 GB) and number text of `bytes`. The unit is picked from the value as it will be printed,
+/// Unit (0 B, 1 KB, 2 MB, 3 GB, 4 TB) and number text of `bytes`. The unit is picked from the value as it will be printed,
 /// so 1,047,900 bytes is "1.0 MB", not "1024 KB" (KB prints no decimals, MB one).
 fn scale(bytes: f64) -> (u8, String) {
     const K: f64 = 1024.0;
@@ -241,8 +253,10 @@ fn scale(bytes: f64) -> (u8, String) {
         (1, format!("{:.0}", bytes / K))
     } else if bytes < K * K * (K - 0.05) {
         (2, format!("{:.1}", bytes / K / K))
-    } else {
+    } else if bytes < K * K * K * (K - 0.005) {
         (3, format!("{:.2}", bytes / K / K / K))
+    } else {
+        (4, format!("{:.2}", bytes / K / K / K / K))
     }
 }
 
@@ -253,12 +267,36 @@ fn size(tr: &Tr, bytes: f64) -> SharedString {
         0 => tr.invoke_size_b(n),
         1 => tr.invoke_size_kb(n),
         2 => tr.invoke_size_mb(n),
-        _ => tr.invoke_size_gb(n),
+        3 => tr.invoke_size_gb(n),
+        _ => tr.invoke_size_tb(n),
     }
 }
 
 fn rate(tr: &Tr, bytes: f64) -> SharedString {
     tr.invoke_rate(size(tr, bytes))
+}
+
+fn on_mounts(ui: &Main, list: Vec<Mount>) {
+    let tr = ui.global::<Tr>();
+    let share = |bytes: u64, pct: u8| tr.invoke_size_share(size(&tr, bytes as f64), pct.to_string().into());
+    let rows: Vec<FsRow> = list
+        .into_iter()
+        .map(|m| {
+            let pct = m.used_pct();
+            FsRow {
+                total: size(&tr, m.total as f64),
+                used: share(m.used, pct),
+                free: share(m.avail, 100u8.saturating_sub(pct)),
+                fill: f32::from(pct) / 100.0,
+                device: m.device.into(),
+                target: m.target.into(),
+                kind: m.fstype.into(),
+            }
+        })
+        .collect();
+    let model = APP.with_borrow(|s| s.mounts.clone());
+    model.set_vec(rows);
+    ui.set_file_systems_ready(true);
 }
 
 /// SVG path in the 59 x 100 box of `GraphData`; right-aligned so the newest sample is always at the right edge.
@@ -322,7 +360,8 @@ impl State {
             .map_or(0, |(pid, _, _)| sys::count_descendants(&self.procs, *pid) as i32)
     }
 
-    fn view(&mut self, tr: &Tr, graphs: bool) -> View {
+    /// `page` is the tab shown: the table's and the graphs' strings are built only for their own tab.
+    fn view(&mut self, tr: &Tr, page: i32) -> View {
         let needle = self.filter.trim().to_lowercase();
         let filtering = !needle.is_empty() || self.strong_only;
         let matches = |p: &Proc| {
@@ -458,60 +497,61 @@ impl State {
             .collect();
         self.alert = culprits;
 
-        let rows = list
-            .iter()
-            .map(|s| {
-                let p = &self.procs[s.idx];
-                if let Some(name) = &s.group {
-                    // An application (or "Processes") has no PID, user or warning of its own: its totals are all
-                    // there is, and the first process lends the icon.
-                    let processes = name.is_empty();
-                    return ProcRow {
-                        icon: if processes {
-                            Default::default()
-                        } else {
-                            self.icons.get(icon_key(p)).cloned().unwrap_or_default()
-                        },
-                        depth: 0,
+        let rows = (page == 0).then(|| {
+            list.iter()
+                .map(|s| {
+                    let p = &self.procs[s.idx];
+                    if let Some(name) = &s.group {
+                        // An application (or "Processes") has no PID, user or warning of its own: its totals are all
+                        // there is, and the first process lends the icon.
+                        let processes = name.is_empty();
+                        return ProcRow {
+                            icon: if processes {
+                                Default::default()
+                            } else {
+                                self.icons.get(icon_key(p)).cloned().unwrap_or_default()
+                            },
+                            depth: 0,
+                            expander: s.expander,
+                            name: if processes {
+                                tr.invoke_group_processes()
+                            } else {
+                                name.as_str().into()
+                            },
+                            pid: SharedString::new(),
+                            user: SharedString::new(),
+                            cpu: format!("{:.1}", self.cpu_shown(s.cpu)).into(),
+                            memory: size(tr, s.mem_kb as f64 * 1024.0),
+                            // Only a strong warning inside the closed group, so the red flag is not lost behind it.
+                            warning: warning_text(tr, s.hidden_warn),
+                            strong: s.hidden_warn.is_some(),
+                            risky: false,
+                            group: true,
+                        };
+                    }
+                    // A collapsed row also shows a strong warning of its hidden children, unless its own is strong.
+                    let reason = if p.warn.is_some_and(Reason::is_strong) {
+                        p.warn
+                    } else {
+                        s.hidden_warn.or(p.warn)
+                    };
+                    ProcRow {
+                        icon: self.icons.get(icon_key(p)).cloned().unwrap_or_default(),
+                        depth: s.depth as i32,
                         expander: s.expander,
-                        name: if processes {
-                            tr.invoke_group_processes()
-                        } else {
-                            name.as_str().into()
-                        },
-                        pid: SharedString::new(),
-                        user: SharedString::new(),
+                        name: p.name.as_str().into(),
+                        pid: p.pid.to_string().into(),
+                        user: p.user.as_str().into(),
                         cpu: format!("{:.1}", self.cpu_shown(s.cpu)).into(),
                         memory: size(tr, s.mem_kb as f64 * 1024.0),
-                        // Only a strong warning inside the closed group, so the red flag is not lost behind it.
-                        warning: warning_text(tr, s.hidden_warn),
-                        strong: s.hidden_warn.is_some(),
-                        risky: false,
-                        group: true,
-                    };
-                }
-                // A collapsed row also shows a strong warning of its hidden children, unless its own is strong.
-                let reason = if p.warn.is_some_and(Reason::is_strong) {
-                    p.warn
-                } else {
-                    s.hidden_warn.or(p.warn)
-                };
-                ProcRow {
-                    icon: self.icons.get(icon_key(p)).cloned().unwrap_or_default(),
-                    depth: s.depth as i32,
-                    expander: s.expander,
-                    name: p.name.as_str().into(),
-                    pid: p.pid.to_string().into(),
-                    user: p.user.as_str().into(),
-                    cpu: format!("{:.1}", self.cpu_shown(s.cpu)).into(),
-                    memory: size(tr, s.mem_kb as f64 * 1024.0),
-                    warning: warning_text(tr, reason),
-                    strong: reason.is_some_and(Reason::is_strong),
-                    risky: risky.contains(&(p.pid, p.start)),
-                    group: false,
-                }
-            })
-            .collect();
+                        warning: warning_text(tr, reason),
+                        strong: reason.is_some_and(Reason::is_strong),
+                        risky: risky.contains(&(p.pid, p.start)),
+                        group: false,
+                    }
+                })
+                .collect()
+        });
         let shown: Vec<(u32, u64)> = list.iter().map(|s| s.key).collect();
         let count = tr.invoke_count(matching as i32);
 
@@ -552,7 +592,7 @@ impl State {
             alert_items,
             ready: self.hist.cpu.len() >= 2,
             graph_model: self.graphs.clone(),
-            graphs: graphs.then(|| self.graph_cards(tr)),
+            graphs: (page == 1).then(|| self.graph_cards(tr)),
         }
     }
 
@@ -672,8 +712,12 @@ impl State {
 }
 
 fn refresh(ui: &Main) {
-    let v = APP.with_borrow_mut(|s| s.view(&ui.global::<Tr>(), ui.get_page() == 1));
-    v.model.set_vec(v.rows);
+    let v = APP.with_borrow_mut(|s| s.view(&ui.global::<Tr>(), ui.get_page()));
+    if let Some(rows) = v.rows {
+        v.model.set_vec(rows);
+        // After the model: the table does not clamp its current row when the row count changes.
+        ui.set_selected_row(v.selected_row);
+    }
     if let Some(graphs) = v.graphs {
         if v.graph_model.row_count() == graphs.len() {
             for (i, g) in graphs.into_iter().enumerate() {
@@ -683,8 +727,6 @@ fn refresh(ui: &Main) {
             v.graph_model.set_vec(graphs);
         }
     }
-    // After the model: the table does not clamp its current row when the row count changes.
-    ui.set_selected_row(v.selected_row);
     ui.set_selected_label(v.selected_label);
     ui.set_selected_stopped(v.selected_stopped);
     ui.set_selected_kids(v.selected_kids);
@@ -919,6 +961,7 @@ fn act_selected(ui: &Main, tx: &mpsc::Sender<Cmd>, action: Action) {
                 Err(KillError::Exited) => tr.invoke_status_exited(),
                 Err(KillError::Cancelled) => tr.invoke_status_cancelled(),
                 Err(KillError::Refused) => tr.invoke_status_refused(),
+                Err(KillError::Partial) => tr.invoke_status_partial(),
                 Err(KillError::Failed(e)) => tr.invoke_status_failed(e.into()),
             });
         });
@@ -954,6 +997,7 @@ fn push_typed(text: &str, field: fn(&mut State) -> &mut String) -> Option<String
 
 /// Typing while the table has focus goes into the filter box. Returns whether the key was used.
 fn type_char(ui: &Main, text: &str) -> bool {
+    // Only Processes and Services reach here (`Main.key-pressed` filters the other tabs out).
     if ui.get_page() == 2 {
         return svc::type_char(ui, text);
     }
@@ -1088,55 +1132,115 @@ fn spawn_sampler(weak: slint::Weak<Main>, rx: mpsc::Receiver<Cmd>, secs: u32) {
     thread::spawn(move || {
         let mut sampler = Sampler::new();
         let mut interval = Duration::from_secs(secs.into());
-        // Services are listed only while their tab is shown; the unit-file states (0.7 s) are read when it opens.
-        let mut services_shown = false;
-        let mut unit_files = HashMap::new();
         // `Sampler::new` took a priming reading; a short wait makes the first CPU % real instead of zero.
         let settle = Duration::from_millis(300);
         thread::sleep(settle);
         loop {
             let sample = sampler.sample();
-            // An empty unit-file map means that read timed out: try again instead of keeping a blank Startup column.
-            if services_shown && unit_files.is_empty() {
-                unit_files = services::unit_files();
-            }
-            // `None` (systemctl gave nothing): the tab keeps its last list.
-            let services = services_shown
-                .then(|| services::list(&sample.procs, &unit_files))
-                .flatten();
-            let shown = weak.upgrade_in_event_loop(move |ui| {
-                on_sample(&ui, sample);
-                if let Some(list) = services {
-                    svc::on_services(&ui, list);
-                }
-            });
-            if shown.is_err() {
+            if weak.upgrade_in_event_loop(move |ui| on_sample(&ui, sample)).is_err() {
                 return;
             }
             match rx.recv_timeout(interval) {
-                Ok(cmd) => {
-                    match cmd {
-                        Cmd::Interval(s) => interval = Duration::from_secs(s.into()),
-                        Cmd::Services(on) => {
-                            services_shown = on;
-                            if on {
-                                // Keep the old map if this read timed out and came back empty.
-                                let fresh = services::unit_files();
-                                if !fresh.is_empty() {
-                                    unit_files = fresh;
-                                }
-                            }
-                        }
-                        Cmd::Now => {}
-                    }
+                Ok(first) => {
                     // Counters are in 10 ms ticks: a sample right after the last one would be mostly noise.
                     thread::sleep(settle);
+                    // Everything waiting is answered by one sample (a burst of kills must not add a point each).
+                    for cmd in std::iter::once(first).chain(rx.try_iter()) {
+                        if let Cmd::Interval(s) = cmd {
+                            interval = Duration::from_secs(s.into());
+                        }
+                    }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
         }
     });
+}
+
+/// One tab's listing on its own thread, so a stuck `systemctl` or network share never stops the process sampling.
+/// `read(opened)` runs only while the tab is shown (`opened`: it just was), one at a time; `apply` gets the result
+/// on the UI thread.
+fn spawn_lister<T: Send + 'static>(
+    weak: slint::Weak<Main>,
+    rx: mpsc::Receiver<Poll>,
+    secs: u32,
+    mut read: impl FnMut(bool) -> T + Send + 'static,
+    apply: fn(&Main, T),
+) {
+    thread::spawn(move || {
+        let mut interval = Duration::from_secs(secs.into());
+        let (mut shown, mut opened) = (false, false);
+        loop {
+            // Hidden: sleep until told otherwise.
+            let first = if shown {
+                match rx.recv_timeout(interval) {
+                    Ok(cmd) => Some(cmd),
+                    Err(mpsc::RecvTimeoutError::Timeout) => None,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            } else {
+                match rx.recv() {
+                    Ok(cmd) => Some(cmd),
+                    Err(_) => return,
+                }
+            };
+            // Drained first: tabs flipped while a slow listing ran must not queue one listing each.
+            for cmd in first.into_iter().chain(rx.try_iter()) {
+                match cmd {
+                    Poll::Shown(on) => {
+                        opened |= on && !shown;
+                        shown = on;
+                    }
+                    Poll::Interval(s) => interval = Duration::from_secs(s.into()),
+                    Poll::Now => {}
+                }
+            }
+            if !shown {
+                continue;
+            }
+            let data = read(std::mem::take(&mut opened));
+            if weak.upgrade_in_event_loop(move |ui| apply(&ui, data)).is_err() {
+                return;
+            }
+        }
+    });
+}
+
+fn spawn_services(weak: slint::Weak<Main>, rx: mpsc::Receiver<Poll>, secs: u32) {
+    // The unit-file states take 0.7 s: read when the tab opens, not every time.
+    let mut files = HashMap::new();
+    let read = move |opened| {
+        // An empty map means that read timed out: try again instead of keeping a blank Startup column.
+        if opened || files.is_empty() {
+            let fresh = services::unit_files();
+            if !fresh.is_empty() {
+                files = fresh;
+            }
+        }
+        services::read(&files)
+    };
+    spawn_lister(weak, rx, secs, read, |ui, listing| {
+        // `None` (systemctl gave nothing): the tab keeps its last list.
+        if let Some(listing) = listing {
+            let list = APP.with_borrow(|s| listing.services(&s.procs));
+            svc::on_services(ui, list);
+        }
+    });
+}
+
+fn spawn_mounts(weak: slint::Weak<Main>, rx: mpsc::Receiver<Poll>, secs: u32) {
+    spawn_lister(
+        weak,
+        rx,
+        secs,
+        |_| mounts::list(),
+        |ui, list| match list {
+            Some(list) => on_mounts(ui, list),
+            // Keep the last list; with none yet, say "not found" instead of "Collecting…" for good.
+            None => ui.set_file_systems_ready(true),
+        },
+    );
 }
 
 fn main() {
@@ -1212,7 +1316,9 @@ fn main() {
 
     let (tx, rx) = mpsc::channel::<Cmd>();
     let weak = ui.as_weak();
-    svc::connect(&ui, &tx);
+    let (svc_tx, svc_rx) = mpsc::channel::<Poll>();
+    let (fs_tx, fs_rx) = mpsc::channel::<Poll>();
+    svc::connect(&ui, &tx, &svc_tx);
     ui.on_row_selected({
         let weak = weak.clone();
         move |row| weak.upgrade().iter().for_each(|ui| select(ui, row))
@@ -1239,6 +1345,11 @@ fn main() {
             refresh(&ui);
             ui.invoke_reveal(ui.get_selected_row());
         }
+    });
+    ui.set_file_systems(ModelRc::from(APP.with_borrow(|s| s.mounts.clone())));
+    ui.on_file_systems_shown({
+        let fs_tx = fs_tx.clone();
+        move |shown| _ = fs_tx.send(Poll::Shown(shown))
     });
     ui.on_page_changed({
         let weak = weak.clone();
@@ -1328,6 +1439,8 @@ fn main() {
             settings.borrow_mut().interval_secs = secs;
             settings.borrow().save();
             let _ = tx.send(Cmd::Interval(secs));
+            let _ = svc_tx.send(Poll::Interval(secs));
+            let _ = fs_tx.send(Poll::Interval(secs));
         }
     });
     ui.on_group_apps_changed({
@@ -1405,72 +1518,12 @@ fn main() {
     // With fixtures (scripts/ui-snapshot.sh) nothing is sampled, so the real system is never read or changed.
     match fixtures::mode() {
         Some(mode) => fixtures::apply(&ui, mode),
-        None => spawn_sampler(ui.as_weak(), rx, settings.borrow().interval_secs),
-    }
-    // Opens a page, a dialog or the context menu directly, for the same script.
-    match std::env::var("FASTPROCMAN_PAGE").as_deref() {
-        Ok("about") => ui.set_about_open(true),
-        Ok("settings") => ui.set_settings_open(true),
-        Ok(p @ ("confirm" | "confirm-kill")) => {
-            // The fixture's one process with an icon (fastprocman, 1011), so the snapshot shows it in the title.
-            if let Some(row) = APP.with_borrow(|s| s.shown.iter().position(|k| k.0 == 1011)) {
-                select(&ui, row as i32);
-                ui.set_selected_row(row as i32);
-                if let Some(r) = ui.get_rows().row_data(row) {
-                    ui.set_confirm_icon(r.icon);
-                }
-            }
-            ui.set_confirm_force(p == "confirm-kill");
-            // A parent with workers, so the snapshot shows the checkbox (plural and singular).
-            ui.set_confirm_kids(if p == "confirm-kill" { 1 } else { 16 });
-            ui.set_confirm_label(ui.get_selected_label());
-            ui.set_confirm_open(true);
+        None => {
+            let secs = settings.borrow().interval_secs;
+            spawn_sampler(ui.as_weak(), rx, secs);
+            spawn_services(ui.as_weak(), svc_rx, secs);
+            spawn_mounts(ui.as_weak(), fs_rx, secs);
         }
-        Ok("properties") => {
-            // The fixture's flagged process (updater, 1002), so the snapshot shows the Warning row and its note.
-            if let Some(row) = APP.with_borrow(|s| s.shown.iter().position(|k| k.0 == 1002)) {
-                select(&ui, row as i32);
-            }
-            open_properties(&ui)
-        }
-        Ok("tree") => {
-            // Not saved: a snapshot must not change the owner's settings. The tree starts open; firefox (1000) is
-            // closed, so the snapshot shows both chevrons and a collapsed row's totals.
-            ui.set_tree(true);
-            // Fixture rows have no launchers (no resolver runs), so name the apps here: firefox is cut out of its
-            // parent cinnamon, Xorg and pipewire are two programs of one app (one group), and the rest is
-            // "Processes". The apps start closed; Firefox is opened to show its children.
-            APP.with_borrow_mut(|s| {
-                s.tree = true;
-                s.flipped.insert((1000, 1000));
-                s.flipped.insert(tree::group_key("Firefox Web Browser"));
-                for (key, app) in [
-                    ("firefox", "Firefox Web Browser"),
-                    ("fastprocman", "FastProcMan"),
-                    ("Xorg", "Display Server"),
-                    ("pipewire", "Display Server"),
-                ] {
-                    s.apps.insert(key.into(), app.into());
-                }
-            });
-            refresh(&ui);
-        }
-        Ok("menu") => {
-            // The popup needs the window shown and laid out first.
-            let weak = ui.as_weak();
-            slint::Timer::single_shot(Duration::from_millis(300), move || {
-                weak.upgrade().iter().for_each(|ui| ui.invoke_show_menu());
-            });
-        }
-        Ok("confirm-service") => {
-            ui.set_page(2);
-            ui.set_confirm_service(1);
-            ui.set_confirm_label(ui.get_svc_selected_label());
-            ui.set_confirm_open(true);
-        }
-        Ok("graphs-tall") => ui.set_page(1),
-        Ok(p) => ui.set_page(p.parse().unwrap_or(0)),
-        Err(_) => {}
     }
     let s = settings.borrow();
     ui.window()
@@ -1493,10 +1546,8 @@ fn main() {
             slint::CloseRequestResponse::HideWindow
         });
     }
-    // A window tall enough for every Graphs card, which the 700 px default scrolls.
-    if std::env::var("FASTPROCMAN_PAGE").as_deref() == Ok("graphs-tall") {
-        ui.window().set_size(slint::LogicalSize::new(860.0, 1150.0));
-    }
+    // After the size: one of the screenshot pages asks for its own.
+    fixtures::open_page(&ui);
     // Ask the window manager to activate the window, so typing works without a click first.
     ui.show().unwrap();
     // winit's X11 `focus_window` does nothing until the window is visible, which it is not right after `show()`;
@@ -1670,6 +1721,7 @@ mod tests {
         // 1023.96 MB would print as "1024.0 MB".
         assert_eq!(s(1_073_700_000.0), (3, "1.00".into()), "not 1024.0 MB");
         assert_eq!(s(1_073_741_824.0), (3, "1.00".into()));
+        assert_eq!(s(4_000_000_000_000.0), (4, "3.64".into()));
         // Just below the step: still the smaller unit.
         assert_eq!(s(1_048_000.0), (1, "1023".into()));
         assert_eq!(s(1_072_000_000.0), (2, "1022.3".into()));

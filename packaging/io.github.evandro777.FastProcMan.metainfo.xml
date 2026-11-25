@@ -15,6 +15,18 @@
   <launchable type="desktop-id">io.github.evandro777.FastProcMan.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.0" date="2026-11-25">
+      <description>
+        <ul>
+          <li>A File systems tab showing mounted disks, USB drives, and network shares with size and usage.</li>
+          <li>End and Force quit with child processes, plus clearer feedback if only some processes were ended.</li>
+          <li>Better slowdown warnings that group busy workers under the build or job causing high CPU use.</li>
+          <li>Intel GPU graphs, per-core CPU load, and memory and swap usage pies.</li>
+          <li>Improved service status handling and larger size units, including TB.</li>
+          <li>Release workflows that run CI on version tags before publishing.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.2" date="2026-11-24">
       <description>
         <ul>

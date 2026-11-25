@@ -15,6 +15,8 @@ pub enum Status {
 pub struct Service {
     pub name: String,
     pub status: Status,
+    /// Stop is offered (instead of Start): anything but inactive or failed, so a crash loop between restarts counts.
+    pub active: bool,
     /// Unit-file state as systemd reports it (`enabled`, `disabled`, `static`, `masked`...); empty when unknown.
     pub startup: String,
     /// Lowest PID in the service's cgroup; 0 when it has no process.
@@ -118,10 +120,14 @@ fn build(
                 name: name.clone(),
                 status: match (active.as_str(), sub.as_str()) {
                     (_, "running") => Status::Running,
+                    // Waiting to be restarted after a crash: red, and found by the Failed filter.
+                    ("activating", s) if s.starts_with("auto-restart") => Status::Failed,
+                    ("activating" | "reloading" | "deactivating", _) => Status::Running,
                     ("active", _) => Status::Exited,
                     ("failed", _) => Status::Failed,
                     _ => Status::Stopped,
                 },
+                active: !matches!(active.as_str(), "inactive" | "failed"),
                 startup: startup_of(files, name).to_string(),
                 pid: first.map_or(0, |p| p.pid),
                 user: first.map(|p| p.user.clone()).unwrap_or_default(),
@@ -137,6 +143,7 @@ fn build(
             out.push(Service {
                 name: name.clone(),
                 status: Status::Stopped,
+                active: false,
                 startup: state.clone(),
                 pid: 0,
                 user: String::new(),
@@ -148,16 +155,33 @@ fn build(
     out
 }
 
-/// All services now. `files` comes from `unit_files()`, read once when the tab opens. `None` when `systemctl` gave
+/// What `read` found, waiting for the process table: reading is slow (a thread's job), joining it with `Proc`s is not.
+pub struct Listing {
+    units: Vec<(String, String, String)>,
+    files: HashMap<String, String>,
+    cgroups: HashMap<String, Vec<u32>>,
+}
+
+impl Listing {
+    pub fn services(self, procs: &[Proc]) -> Vec<Service> {
+        build(self.units, &self.files, &self.cgroups, procs)
+    }
+}
+
+/// The units now. `files` comes from `unit_files()`, read once when the tab opens. `None` when `systemctl` gave
 /// nothing (timed out or failed): the caller keeps the previous list instead of showing a machine with no services.
-pub fn list(procs: &[Proc], files: &HashMap<String, String>) -> Option<Vec<Service>> {
+pub fn read(files: &HashMap<String, String>) -> Option<Listing> {
     let units = parse_units(&systemctl(&["list-units", "--all"]));
     if units.is_empty() {
         return None;
     }
-    let mut cg = HashMap::new();
-    cgroup_pids(Path::new("/sys/fs/cgroup"), &mut cg);
-    Some(build(units, files, &cg, procs))
+    let mut cgroups = HashMap::new();
+    cgroup_pids(Path::new("/sys/fs/cgroup"), &mut cgroups);
+    Some(Listing {
+        units,
+        files: files.clone(),
+        cgroups,
+    })
 }
 
 /// `systemctl start|stop|restart <unit>`. systemctl asks polkit itself (no pkexec). Blocking: call it from a thread.
@@ -214,7 +238,7 @@ mod tests {
         let files = unit_files();
         println!("unit_files: {} entries in {:?}", files.len(), t.elapsed());
         let t = std::time::Instant::now();
-        let list = list(&procs, &files).unwrap_or_default();
+        let list = read(&files).map(|l| l.services(&procs)).unwrap_or_default();
         println!("list: {} services in {:?}", list.len(), t.elapsed());
         for s in list.iter().filter(|s| s.pid != 0).take(8) {
             println!("{s:?}");
@@ -268,5 +292,30 @@ mod tests {
         // Listed though not loaded; masked units and templates are not.
         assert_eq!(by("sshd.service").status, Status::Stopped);
         assert!(!s.iter().any(|s| s.name == "mask.service" || s.name == "foo@.service"));
+    }
+
+    #[test]
+    fn a_crash_loop_can_be_stopped() {
+        let units = parse_units(
+            "loop.service loaded activating auto-restart Loop\n\
+             up.service loaded activating start Up\n\
+             down.service loaded deactivating stop-sigterm Down\n\
+             bad.service loaded failed failed Bad\n\
+             off.service loaded inactive dead Off\n",
+        );
+        let got: Vec<_> = build(units, &HashMap::new(), &HashMap::new(), &[])
+            .iter()
+            .map(|s| (s.status, s.active))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (Status::Failed, true),
+                (Status::Running, true),
+                (Status::Running, true),
+                (Status::Failed, false),
+                (Status::Stopped, false),
+            ]
+        );
     }
 }
